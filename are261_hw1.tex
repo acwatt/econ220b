@@ -1,0 +1,587 @@
+\documentclass[12pt]{article}
+\usepackage{preamble}
+\graphicspath{{pics/hw1/}}
+\begin{document}
+\chead{Problem Set 1}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                  Definitions                %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\includegraphics[width=\mywidth\textwidth]{}
+
+% \begin{figure}[h!]
+% \centering
+% \input{pics/PS2/p7b}
+% \caption{}
+% \label{fig-}
+% \end{figure}
+
+% \begin{enumerate}[label=\alph*.]
+%     \setcounter{enumi}{1}
+%     \item 
+% \end{enumerate}
+
+%%%%%%%%%%%%%%%%%
+%     Part a    %
+%%%%%%%%%%%%%%%%%
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                Problem I                    %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\problem{I. RCT/RED: post-treatment data only}{
+You have been contacted by RCT Power and Light (RCTP\&L) about helping them design a field experiment.
+Under a recent PUC ruling, RCTP\&L is now required to reduce electricity usage in its service territory to 10
+percent of forecast levels by 2025. If the utility can demonstrate that consumers reduce demand in
+response to intervention, they can count this program towards compliance with this regulation.
+RCTP\&L are proposing to run a pilot program to help them estimate the average effect of this intervention
+on monthly household electricity consumption. RCTP\&L plans to provide their customers with following:
+\begin{itemize}
+    \item An in-home monitor that captures and displays real time energy consumption (in terms of dollars
+and kWhs),
+    \item An easy-to-use phone app that helps customers make sense of their consumption patterns and
+develop a strategy for reducing their energy consumption.\\
+\end{itemize}
+Pat the project manager has come to you with a research design and is hoping you can help him figure
+out how many customers he will need in the study. The proposed research design proceeds as follows:
+\begin{enumerate}
+    \item Randomly select N customers from the larger population of residential customers.
+    \item Randomly assign these customers to either a control group or the treatment group.
+    \item Contact treated households with the offer of free devices.
+    \item Collect monthly billing information for both the treated and control groups (i.e. N customers) over a two-year period following the introduction of the treatment in the treated group.
+    \item Compare consumption patterns in the treated and control group.\\
+\end{enumerate}
+
+Pat is asking you how big the sample should be in order to detect a treatment effect of 5\% with reasonable
+confidence. He thinks customers would be crazy not to jump at this offer, and instructs you to assume all
+``treated'' households will receive the intervention. Assume you will have 24 months of post-treatment
+data to work with.\\
+    \begin{enumerate}[label=(\arabic*)]
+        \item Use the sample of customer billing data provided (and described at the end of this assignment) to estimate how big the sample of customers would need to be to detect a treatment effect of 5\% with reasonable confidence.
+        \begin{enumerate}[label=\alph*]
+            \item Begin by clearly stating the estimating equation you have in mind.
+            \item Given this equation, compute the required sample size using the analytic formulae provided in the lecture notes on power calculations.
+        \end{enumerate}
+    \end{enumerate} 
+}
+
+\def\II{\mathcal{I}}
+\def\TT{\mathcal{T}}
+\def\one{\mathbbm{1}}
+
+\textbf{Estimating Equation:}
+\begin{equation}
+    Y_{i,t} = \alpha + \tau D_{i,t}
+        + \sum\limits_{s\in\TT}\gamma_s\delta_{s,t} + \varepsilon_{i,t}
+    \label{1.1a}
+\end{equation}
+where:
+\begin{itemize}
+    \item $Y_{i,t}$ = consumer $i$'s electricity consumption at time $t$
+    \item $\alpha = \E{Y_{i,t}(0)}$ 
+    \item $\tau = \E{Y_{i,t}(1) - Y_{i,t}(0)}$
+    \item $\delta_{s,t} = 1$ if $s=t$, 0 otherwise
+    \item $\II$ and $\TT$ are the index sets of clusters (households) and year-months, respectively.
+\end{itemize}
+
+If we had customer-level characteristics, we could include a $\boldsymbol{x_i}\boldsymbol{\beta}$ term to control for random differences in consumer characteristics that might contribute to their electricity usage. We also are assuming here that consumers are i.i.d. and the consumption or treatment of one consumer is not effecting others. Because we have no information on location or other group memberships, we cannot explicitly cluster on a group-level identifier.
+
+For the calculation, I assume:
+\begin{itemize}
+    \item level of statistical power $\kappa = 0.8$
+    \item significance level $\alpha = 5\%$
+    \item treatment proportion $P = 0.5$
+\end{itemize}
+
+I begin by estimating $\sigma_\varepsilon^2, \sigma_\epsilon^2, \sigma_v^2,$ and $\rho$ using the data provided. From the data we have, no treatment has been applied.  I will assume that $\hat\sigma_\varepsilon$ from a fixed effects regression
+
+\begin{align*}
+\hat\sigma_\varepsilon &:\quad
+    Y_{i,t} = \alpha 
+    + \sum\limits_{s\in\TT}\gamma_s\delta_{s,t}
+    + \varepsilon_{i,t}\\
+\hat\sigma_\epsilon &:\quad
+    Y_{i,t} = \alpha 
+    + \sum\limits_{j\in\II}\alpha_j\delta_{j,i}
+    + \sum\limits_{s\in\TT}\gamma_s\delta_{s,t}
+    + \epsilon_{i,t}\\
+\hat\sigma_v &= \hat\sigma_\varepsilon - \hat\sigma_\epsilon \\
+\hat\rho &= \frac{\hat\sigma_v}{\hat\sigma_v + \hat\sigma_\varepsilon}
+\end{align*}
+
+will be a good estimate of $\var{\varepsilon_{i,t}}$ from \eqref{1.1a}.
+
+
+\begin{lstlisting}[language=R]
+library(tidyverse)
+data1 = read.csv('PS1_data.csv')
+FE1 = lm(kwh ~ factor(yearmonthid), data=data1)
+FE2 = lm(kwh ~ factor(custid) + factor(yearmonthid), data=data1)
+sigma2_vare = sum(FE1$residuals^2) / (summary(FE1)$df[2] - 1)
+sigma2_e = sum(FE2$residuals^2) / (summary(FE2)$df[2] - 1)
+sigma2_v = sigma2_vare - sigma2_e
+rho = sigma2_v / (sigma2_v + sigma2_e)
+
+sigma2_vare
+[1] 855540.9
+sigma2_e
+[1] 333429.6
+sigma2_v
+[1] 522111.3
+rho
+[1] 0.6102704
+\end{lstlisting}
+
+Then, plugging in these estimated values and our assumed values for $\alpha, \kappa, P,$ and $MDE$, we get an estimate for the number of households we need to detect a significant 5\% treatment effect 80\% of the time.
+
+
+\begin{lstlisting}[language=R]
+alpha = 0.05
+kappa = 0.8
+P = 0.5
+MDE = 0.05*mean(data1$kwh)
+T = length(unique(data1$yearmonthid))
+t_a = qt(alpha/2, J, lower.tail=FALSE)
+t_k = qt((1-kappa), J, lower.tail=FALSE)
+
+J_hat = (t_a + t_k)^2*sigma2_e/(P*(1-P)*MDE^2)*(rho + (1-rho)/T)
+J_hat
+[1] 2781.984
+\end{lstlisting}
+
+
+%%%%%%%%%%%%%%%%%
+%     Part b    %
+%%%%%%%%%%%%%%%%%
+\newpage
+\problem{}{
+    \begin{enumerate}[label=(\arabic*)]
+    \setcounter{enumi}{1}
+        \item Now repeat the power analysis you conducted in part (2) using the data provided and a simulation-based approach. In other words, simulate the estimation exercise using different sample sizes until you achieve the desired statistical power.
+        \begin{enumerate}[label=\alph*]
+            \item Please explain the specific steps you take to conduct this analysis (and provide the associated code).
+            \item Do you reach the same conclusion (i.e. the same sample size) as in part 2? If no, offer some explanation as to why not.
+        \end{enumerate}
+    \end{enumerate} 
+}
+
+Steps:
+\begin{enumerate}
+    \item Load data
+    \item Define the treatment proportion $P=0.5$ and the significance level $\alpha = 0.05$
+    \item Define the number of simulations $S$ to run for each sample size.
+    \item Define range of sample sizes $Jlist$ to test (number of households to sample from our data).
+    \item Let $J\in Jlist$.
+    \item For each one of the $S$ simulations for that $J$, pick (with replacement) $J$ households from the data.
+    \item Randomly pick (without replacement) $J\cdot P$ households from the sample to treat. Mark them with a treatment indicator $D$ and reduce their electricity consumption $Y$ by 5\% (the desired MDE).
+    \item Regress $Y$ on $D$ and year-by-month fixed effects.
+    \item Save the p-value of treatment effect coefficient.
+    \item After the $S$ simulations are done for $J$, calculate the proportion of the $S$ simulations that let to a \textbf{rejected} null hypothesis of no treatment effect (i.e., what is the proportion of $S$ where the p-value was $< \alpha=0.05$?).
+    \item Plot this proportion for all $J\in Jlist$ to determine the $J$ where we can safely see a significant treatment effect in more than $\kappa = 0.8$ of the simulations.
+\end{enumerate}
+
+
+
+To do this, I define a simulation function (see comments in green):
+
+\begin{lstlisting}[language=R]
+# Define a function to run simulations
+simulate <- function(data1, Jlist, Simulations, take_up=1) {
+  # data1 = dataframe of representative observations to sample from
+  # Jlist = list of sample sizes J (number of households)
+  # Simulations = Number of simulations to run for each J
+  # take_up = fraction of households assigned treatment that take up treatment
+  
+  # Start a dataframe to keep track of simulation outputs
+  df = data.frame()
+
+  # Itererate over a list of sample sizes
+  for (J in Jlist) {
+    df1 = data.frame()
+    
+    # Run `Simulations` simulations
+    for (s in 1:Simulations){
+      # Generate sample of J households with replacement
+      sample_hhs = sample(data1$custid, J, replace=TRUE)
+      sample = bind_rows(lapply(sample_hhs, function(i) data1[data1$custid %in% c(i), ]))
+      # create new HH ids in case a HH is repeated
+      sample$id = rep(1:J, each=24)
+      
+      # Randomly treat P proportion of the observations
+      Jtreat = round(P*J*take_up)
+      idx = sample(1:J, Jtreat, replace=FALSE)
+      sample$kwh_new = sample$kwh
+      sample[sample$id %in% idx,]$kwh_new = sample[sample$id %in% idx,]$kwh*(1 - 0.05)
+      sample$D = 0
+      sample[sample$id %in% idx,]$D  = 1
+      
+      # Regress
+      reg = summary(lm(kwh_new ~ D + factor(yearmonthid), data=sample))
+      
+      # Save p-value of average treatment effect estimate
+      coef = coef(reg)['D', 'Estimate']
+      pval = coef(reg)['D', 'Pr(>|t|)']
+      df2 = data.frame(J=J, coef=coef, pval=pval, reject=(coef < 0 && pval <= 0.05))
+      df1 = rbind(df1, df2)
+
+    }
+    # Save portion of rejected nulls (p < alpha)
+    m = mean(df1$reject)
+    se = (m*(1-m)/Simulations)^0.5
+    lower = m - 1.96*se
+    upper = m + 1.96*se
+    df = rbind(df, data.frame(J=J, portion=m, lower=lower, upper=upper, simulations=Simulations))
+  }
+  
+  return(df)
+}
+
+plotsim <- function(Simulations, Jlist, df, J_hat) {
+  png(file=paste0('1-2_simulations_',Simulations, '_', min(Jlist), '-to-', max(Jlist), '.png'),
+      width=800, height=400)
+  xlower = min(Jlist)
+  xupper = max(Jlist)
+  ylower = min(df$lower)
+  yupper = max(df$upper)
+  x1 = xlower + 0.1*(xupper - xlower)
+  y1 = 0.8 + 0.05*(yupper-ylower)
+  x2 = J_hat - 0.12*(xupper - xlower)
+  y2 = ylower + 0.1*(yupper-ylower)
+  a_size = 6
+  ggplot(df, aes(x=J, y=portion)) +
+          labs(title=paste('Proportion of', Simulations, 'simulations rejecting the null when sampling from J households'),
+               subtitle="Shaded area = rough 95% confidence interval of portions") +
+          geom_line() +
+          xlab('J (number of households in sample') +
+          ylab(paste('Proportion rejecting the null')) +
+          xlim(range(min(Jlist), max(Jlist))) +
+          geom_hline(yintercept=0.8, linetype="dashed", color = "red") +
+          annotate("text", x=x1, y=y1, label=TeX("$\\kappa = 0.8$"), size=a_size) +
+          geom_vline(xintercept=J_hat, linetype="dashed", color = "red") +
+          annotate("text", x=x2, y=y2, label=TeX(sprintf('analytical $\\hat{J} = %d$', round(J_hat))), size=a_size) +
+          geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.5, linetype="dashed", color="green")
+  dev.off()
+}
+
+Jlist0 = seq(from=1000, to=3000, by=500)
+sim0 = simulate(data1, Jlist0, Simulations=10)
+plotsim(S0, Jlist0, sim0, J_hat)
+
+Jlist1 = seq(from=100, to=3500, by=100)
+sim1 = simulate(data1, Jlist1, Simulations=100)
+plotsim(S1, Jlist1, sim1, J_hat)
+
+Jlist2 = seq(from=1000, to=3000, by=100)
+sim2 = simulate(data1, Jlist2, Simulations=1000)
+plotsim(S2, Jlist2, sim2, J_hat)
+
+Jlist3 = seq(from=2700, to=2800, by=10)
+sim3 = simulate(data1, Jlist3, Simulations=10000)
+# This was taking too long (~ 3 hours per J)
+\end{lstlisting}
+
+Plotting these simulations (Fig. \ref{fig1-2}), we can see that the safe sample size $J$ to ensure a significant treatment effect is in the same neighborhood as our analytical version (somewhere between 2000 and 3000 households). Using a larger number of simulations per sample size would result in a smoother curve and we can see that more simulations lead to more monotonically increasing curves. The safe threshold sample size from the simulation (about 1800-2500) is a bit less than the analytical sample size (2782), but it is reassuring that it's nearby. 
+
+For a real experiment, I would want to run more simulations. If we perfectly specified the analytical version (using the more complicated panel data version), I would expect that the simulated answer would converge to the analytical version as the number of simulations used increased.
+
+\def\widthfrac{0.7}
+\begin{figure}[h!]
+\centering
+\begin{subfigure}{\widthfrac\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{"1-2_simulations_10_1000-to-3000"}
+    \caption{Portion of 10 simulations over 1000-3000 households.}
+    \label{fig1-2a}
+  \end{subfigure}
+\begin{subfigure}{\widthfrac\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{"1-2_simulations_100_100-to-3500"}
+    \caption{Portion of 100 simulations over 100-3500 households.}
+    \label{fig1-2b}
+  \end{subfigure}
+\begin{subfigure}{\widthfrac\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{"1-2_simulations_1000_1000-to-3000"}
+    \caption{Portion of 1000 simulations over 1000-3000  households.}
+    \label{fig1-2c}
+  \end{subfigure}
+\caption{Portion of simulations resulting in a rejected null hypothesis of no treatment effect at a 95\% confidence interval (estimated 95\% confidence intervals of the estimated proportion is shaded).}
+\label{fig1-2}
+\end{figure}
+\FloatBarrier
+
+
+%%%%%%%%%%%%%%%%%
+%     Part c    %
+%%%%%%%%%%%%%%%%%
+\newpage
+\problem{}{
+    \begin{enumerate}[label=(\arabic*)]
+    \setcounter{enumi}{2}
+        \item Pat takes the power analysis you did in parts 1 and 2 to the RCTP\&L board. They are rightly concerned about Pat’s assumption of 100\% take up. They point to other exciting residential programs that have take-up rates around 10\%. You explain that you can redo the power calculations to reflect a 10\% take up rate. You also suggest an “opt-out” design where customers receive these devices in the mail by default. This could help engage a larger share of customers.\\
+        
+        Using the RED framework we discussed in class, modify the power analysis conducted above (you can choose to modify either the analytical or simulation-based approach) to account for the opt-in and opt-out alternatives, respectively. Assume an opt-in rate of 10\%. Assume an opt-out rate of 50\%. By how much does the required sample size increase under these two designs?
+    \end{enumerate} 
+}
+
+To adjust the analytical version, we need only multiply by a factor of $\dfrac{1}{(c-s)^2}$, where $c$ is the take-up rate of those encouraged (10\% and 50\%), and $s$ is the share of controls that take up treatment (0\% here because they will not be able to access the devices if they are not sent them). So we would expect the analytical $J$ to increase by a factor of $\dfrac{1}{0.1^2}=100$ and $\dfrac{1}{0.5^2}=4$ for each of the designs. This is about 278,200 for the first design, and 11,128 for the second.
+
+To adjust the simulation, we just need to specify the take up rate. This adjusts the proportion of the sample that is selected for treatment. Thus, a simulation with 100 simulations per sample size, and a range of sample sizes from 2000 to 6000 would look like:
+
+\begin{lstlisting}[language=R]
+# Opt-in design ==> take_up rate of 10%
+Jlist4 = seq(from=1000, to=3000, by=100)
+sim4 = simulate(data1, Jlist2, Simulations=1000, take_up=0.10)
+plotsim(1000, Jlist2, sim4, J_hat)
+# Opt-out design ==> take_up rate of 50%
+sim5 = simulate(data1, Jlist4, Simulations=1000, take_up=0.50)
+plotsim(1000, Jlist2, sim5, J_hat)
+\end{lstlisting}
+
+From the simulations below, we can see that the $J$ for which the simulation fraction is safely over a $\kappa=0.8$ is well below the analytical suggestion. For 10\% takeup, the simulations suggest somewhere between 10,000 and 20,000 households should be enough (as opposed to $\approx 278,200 $ from the analytical adjustment). For the 50\% takeup, simulations suggest somewhere between 3000 and 4000, again for below the 11,128 suggested analytically. This suggests that either my simulations are buggy or that there is something unaccounted for in my analytical calculations. 
+
+In general, I would trust my simulations more because it's a simpler method to test: I artificially treat my sample and regress.
+
+\def\widthfrac{0.45}
+\begin{figure}[h!]
+\centering
+\begin{subfigure}{\widthfrac\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{"1-2_simulations_20_1000-to-20000_takeup-0.1"}
+    \caption{Portion of 20 simulations over 1000-20,000 households with 10\% takeup.}
+    \label{fig1-3a}
+  \end{subfigure}
+\begin{subfigure}{\widthfrac\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{"1-2_simulations_100_7000-to-40000_takeup-0.1"}
+    \caption{Portion of 100 simulations over 7000-40,000 households with 10\% takeup.}
+    \label{fig1-3b}
+  \end{subfigure}
+\begin{subfigure}{\widthfrac\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{"1-2_simulations_20_1000-to-7000_takeup-0.5"}
+    \caption{Portion of 20 simulations over 1000-7000 households with 50\% takeup.}
+    \label{fig1-3c}
+  \end{subfigure}
+\begin{subfigure}{\widthfrac\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{"1-2_simulations_100_2000-to-6000_takeup-0.5"}
+    \caption{Portion of 100 simulations over 2000-6000 households with 50\% takeup.}
+    \label{fig1-3d}
+  \end{subfigure}
+\caption{Take-up considered: Portion of simulations resulting in a rejected null hypothesis of no treatment effect at a 95\% confidence interval with a 10\% and 50\% take-up percentages (estimated 95\% confidence intervals of the estimated proportion is shaded).}
+\label{fig1-3}
+\end{figure}
+\FloatBarrier
+
+
+%%%%%%%%%%%%%%%%%
+%     Part d    %
+%%%%%%%%%%%%%%%%%
+\vem
+\problem{}{
+    \begin{enumerate}[label=(\arabic*)]
+    \setcounter{enumi}{3}
+        \item You present your cost and power calculations in part 4 to the energy efficiency division at RCTP\&L. They want to know if you will be able to test whether the response from consumers who choose to participate is different from the customers who were nudged/defaulted into the program. Can you separately identify these effects with your design?
+    \end{enumerate} 
+}
+
+We can identify these effects with the experimental setup (treatment encouragement design), but the statistical model I have proposed would not suffice to parse these effects. To assess these effects, we can run two different regressions: one on just the encouraged group (where treatment is actual treatment takeup) and one on the control group (where treatment is treatment takeup). This works in this instance because, presumably, the agency knows who has been actually treated (they can see who is using the in-home monitors).
+
+
+
+%%%%%%%%%%%%%%%%%
+%     Part e    %
+%%%%%%%%%%%%%%%%%
+\newpage
+\problem{}{
+    \begin{enumerate}[label=(\arabic*)]
+    \setcounter{enumi}{4}
+        \item Think about some of the assumptions and complications we discussed in class: the monotonicity assumption; SUTVA; the Hawthorne effect. Which (if any) of these might you be concerned about in this empirical setting?
+    \end{enumerate} 
+}
+
+\textbf{Monotonicity:} I can imagine some customers might resent being sent a device (in the opt-out design) and might turn on all their lights and leave some windows open just to spite the environmental justice warriors that are trying to force them to decrease their electricity usage. This violates monotonicity of treatment effect.
+
+\textbf{SUTVA:} I'm not worried about SUTVA because I doubt the average electricity consumer is talking to their neighbors about an in-home monitor they receive from the electricity company.
+
+\textbf{Hawthorne effect:} I think this actually might be the treatment effect here -- we are interested in knowing how receiving a monitor might impact electricity usage. The Hawthorne effect is a change in behavior because the treatment unit is aware of being monitored. But in a treatment where monitoring is the treatment, the Hawthorne effect is the actual treatment effect (or at least the part of treatment effect where the consumer is aware that others are watching, vs the part where they are more aware of their usage because they are monitoring their usage, but these are two interconnected effects of the monitor, and I think we are interested in the combined effect).
+
+
+
+
+
+\newpage
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                Problem II                   %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\problem{II. Panel data!}{
+Another utility contacts you about designing a small field experiment. They have equipped a non-random sample of 97 households with smart meters. These households eagerly opted into this experiment. They now want to equip these households with enabling devices that provide real-time feedback by displaying smart-meter data on an in-home device. The electric data will be aggregated to the daily level, and they will give you one year of pre-treatment data and one year of post-treatment data. They want to know the minimum effect that they could detect with this sample. Assume full compliance with treatment (i.e. everyone who is offered the free monitor will take it).
+\vem
+    \begin{enumerate}[label=(\arabic*)]
+        \item You have data aggregated to the daily and monthly level. Write down your estimating equations for both the daily and monthly data, respectively.
+    \end{enumerate} 
+}
+
+\textbf{Estimating Equations:}
+\begin{align*}
+\text{Daily: } Y_{i,y,d} &= \beta_0 + \tau\ \one(y=2014) 
+    + \beta_d + c_i + \varepsilon_{i,y,d} \\
+\text{Monthly: } Y_{i,y,m} &= \beta_0 + \tau\ \one(y=2014) 
+    + \beta_m + c_i + \varepsilon_{i,y,m}
+\end{align*}
+where:
+\begin{itemize}
+    \item $Y_{i,t}$ = consumer $i$'s electricity consumption at time $t$
+    \item $\tau$ = estimated treatment effect
+    \item $\beta_t$ = period-specific effect for period $t\in\{day, month\}$
+    \item $c_i$ = $i$'s household-specific effect
+\end{itemize}
+
+
+
+%%%%%%%%%%%%%%%%%
+%     Part b   %
+%%%%%%%%%%%%%%%%%
+\vem
+\problem{}{
+    \begin{enumerate}[label=(\arabic*)]
+    \setcounter{enumi}{1}
+        \item Using the sample of customer billing data provided (daily and monthly), estimate the minimum detectable effect on electricity consumption using a simulation-based power analysis. Assume a sample of 97 households with one year of pre-treatment data and one year of post-treatment data. Comment on the relative magnitude of the MDEs you estimate for the daily versus monthly data.
+    \end{enumerate} 
+}
+
+Modifying the previous simulation function to iterate over imposed treatment effects instead of sample size, we can see the simulation results below. While the monthly data results in an MDE of 2-2.5\%, the daily data results in an MDE of 1-1.5\%, about one-half the size. 
+
+I expected the relative size of the MDE to be much smaller for daily data relative to monthly (because we have roughly 30 times more data) but I am also using more time fixed effects (on the day-of-year level). 
+
+\def\widthfrac{0.8}
+\begin{figure}[h!]
+\centering
+\begin{subfigure}{\widthfrac\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{"2-2_month_simulations_100_0-to-0.04"}
+    \caption{Monthly data: Portion of 100 simulations over imposed, randomly assigned treatment effect from 0 to 4\%.}
+    \label{fig2-2a}
+  \end{subfigure}
+\begin{subfigure}{\widthfrac\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{"2-2_day_simulations_100_0-to-0.02"}
+    \caption{Daily data: Portion of 100 simulations over imposed, randomly assigned treatment effect from 0 to 2\%.}
+    \label{fig2-2b}
+  \end{subfigure}
+\caption{Portion of simulations resulting in a rejected null hypothesis of no treatment effect at a 95\% confidence interval, when imposing a treatment effect of various sizes (estimated 95\% confidence intervals of the estimated proportion is shaded). MDE = treatment effect imposed on data.}
+\label{fig2-2}
+\end{figure}
+\FloatBarrier
+
+
+\begin{lstlisting}[language=R]
+## QUESTION 2: PANEL DATA ===================================
+library(lfe)  # fixed effects
+library(latex2exp)  # greek text
+library(tidyverse)  # data manipulation (like rbind)
+set.seed(194842)
+
+
+# Define a function to run simulations
+simulate2 <- function(data, MDElist, Simulations, P=0.5, take_up=1, sample_size=97, day_or_month='day') {
+  # data = dataframe of representative observations to sample from
+  # MDElist = list of sample sizes J (number of households)
+  # Simulations = Number of simulations to run for each J
+  # take_up = fraction of households assigned treatment that take up treatment
+  # Start a dataframe to keep track of simulation outputs
+  df = data.frame()
+  print(paste('START:', Simulations, "simulations for MDE sizes", min(MDElist), 'to', max(MDElist)))
+  time_start = proc.time()
+  
+  # Itererate over a list of sample sizes
+  for (MDE in MDElist) {
+    print(paste(format(Sys.time(), "%X"), ': Starting', Simulations, 'simulations for MDE =', MDE))
+    df1 = data.frame()
+    
+    # Run `Simulations` simulations
+    for (s in 1:Simulations){
+      # Generate sample of J households with replacement
+      sample_hhs = sample(data$hhid, sample_size, replace=TRUE)
+      sample = bind_rows(lapply(sample_hhs, function(i) data[data$hhid %in% c(i), ]))
+      # create new HH ids in case a HH is repeated
+      obs_per_hh = 24
+      sample$time = sample$month
+      if (day_or_month=='day') {
+        obs_per_hh = 2*365
+        sample$time = sample$day
+      }
+      sample$HHid = rep(1:sample_size, each=obs_per_hh)
+      
+      # Treat second year of observations
+      sample[sample$year == 2014,]$kwh = sample[sample$year == 2014,]$kwh*(1 - MDE)
+      sample$treat = ifelse(sample$year == 2014, 1, 0)
+      
+      # Regress
+      # reg = summary(lm(kwh ~ D + factor(t) + factor(hhid), data=sample))
+      reg = summary(felm(kwh ~ treat | time + HHid, data=sample))
+      
+      # Save p-value of average treatment effect estimate
+      coef = coef(reg)['treat', 'Estimate']
+      pval = coef(reg)['treat', 'Pr(>|t|)']
+      df2 = data.frame(MDE=MDE, coef=coef, pval=pval, reject=(coef < 0 && pval <= 0.05))
+      df1 = rbind(df1, df2)
+      
+    }
+    # Save portion of rejected nulls (p < alpha)
+    m = mean(df1$reject)
+    se = (m*(1-m)/Simulations)^0.5
+    lower = m - 1.96*se
+    upper = m + 1.96*se
+    print(paste0('Portion of simulations that lead to rejecting the null: ', m,
+                 ' [', lower,', ', upper, ']'))
+    df = rbind(df, data.frame(MDE=MDE, portion=m, lower=lower, upper=upper, simulations=Simulations))
+  }
+  
+  print(paste('DONE: Simulation duration:', round((proc.time() - time_start)[3]/60, 2), 'min'))
+  return(df)
+}
+
+plotsim2 <- function(df, day_or_month) {
+  Simulations = df$simulations[1]
+  xlower = min(df$MDE)
+  xupper = max(df$MDE)
+  ylower = min(df$lower)
+  yupper = max(df$upper)
+  x1 = xlower + 0.1*(xupper - xlower)
+  y1 = 0.8 + 0.05*(yupper-ylower)
+  a_size = 6
+  
+  png(file=paste0('2-2_', day_or_month, '_simulations_',Simulations, '_', xlower, '-to-', xupper, '.png'), width=800, height=400)
+  print(ggplot(df, aes(x=MDE, y=portion)) +
+          labs(title=paste('Proportion of', Simulations, 'simulations rejecting the null when applying MDE'),
+               subtitle="Shaded area = rough 95% confidence interval of portions") +
+          geom_line() +
+          xlab('MDE (simulated treatment effect size)') +
+          ylab(paste('Proportion rejecting the null')) +
+          xlim(range(xlower, xupper)) +
+          geom_hline(yintercept=0.8, linetype="dashed", color = "red") +
+          annotate("text", x=x1, y=y1, label=TeX("$\\kappa = 0.8$"), size=a_size) +
+          geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.5, linetype="dashed", color="green"))
+  dev.off()
+}
+
+data_monthly = read.csv('pecanstreet_monthly.csv')
+data_daily = read.csv('pecanstreet_daily.csv')
+
+# Monthly
+MDElistmonth = seq(from=0, to=0.04, by=0.001)
+mde_sim_month = simulate2(data_monthly,  MDElistmonth, Simulations=100, day_or_month='month')
+plotsim2(mde_sim_month, 'month')
+
+# Daily
+MDElistday = seq(from=0, to=0.02, by=0.0005)
+mde_sim_day = simulate2(data_daily,  MDElistday, Simulations=100, day_or_month='day')
+plotsim2(mde_sim_day, 'day')
+\end{lstlisting}
+
+
+
+\end{document}
+
