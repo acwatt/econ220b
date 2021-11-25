@@ -1,0 +1,173 @@
+---
+title: "Econ 220B PS 2"
+author: "AC Watt"
+email: aaron@acwatt.net
+date: "2021-12-03"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+   - \usepackage{dcolumn}
+   - \usepackage{amsmath}
+   - \usepackage{floatrow}
+   - \floatsetup[figure]{capposition=top}
+   - \usepackage{float}
+   - \floatstyle{plaintop}
+   - \restylefloat{table}
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'ARE_213_PS2b.pdf')) })
+---
+
+```{r setup, message=F, echo=F}
+rm(list=ls())
+knitr::opts_chunk$set(echo = F)
+```
+<!--
+R version 3.6.3 (2020-02-29)
+Purpose of script: run code necessary for ps2b for ARE 213
+
+Notes: Need to open ps2b.Rmd from the ps2b folder (without Rstudio being started first)
+if Rstudio is already started, the working directory will not be set
+to the ps2b/ folder
+
+\usepackage{dcolumn}: dcolumn is needed in latex compilation for multicolumn tables
+-->
+
+```{r Settings}
+# stargazer table type (html, latex, or text)
+# Change to latex when outputting to PDF, html when outputting to html
+table_type = "latex"
+Cache = TRUE
+
+```
+
+
+
+
+```{r packages, message=F, warning=F}
+# Packages
+library(stargazer)
+library(ggplot2)
+library(readxl)
+library(tidyverse)
+library(lubridate)
+```
+
+
+
+\newpage
+<!--=========================================================================-->
+# Part a
+<!--=========================================================================-->
+**Construct sample statistics similar to Tabel IIa and IIb on page 1003.**
+\vspace{1em}
+
+
+```{r Load Data, eval=T, cache=Cache}
+# Load data from PS2a with previous log variables
+f = 'rust_data_clean.xlsx'
+headers = read_excel(f, sheet='header_names', col_names='header')
+data = read_excel(f, 1)
+sheets = excel_sheets(f)[1:8]
+old_colnames = paste0("...", 1:11)
+
+replacement_dates = lapply(setNames(sheets, sheets), function(x) read_excel(f, sheet=x, n_max=11, col_names=F, col_types="numeric")) %>%
+    bind_cols(., .id="Sheet") %>%
+    data.frame()
+row.names(replacement_dates) <- headers$header
+replacement_dates %>%
+    mutate(headers = headers$header) %>%
+    data.frame(t(.), stringsAsFactors=F) %>%
+    rename(!!set_names(paste0("...", 1:11), t(headers))) %>%
+    mutate(date_ = ymd(str_c(`purchase year`, "-01-01")),
+           purchase_date = date_ + months(`purchase month`))
+    mutate(purchase_date = str_replace_all(paste0(`purchase month`, '/19', `purchase year`), ' ', ''),
+           date = as.Date(purchase_date, format='%m/%Y'))
+
+
+for (sheet in sheets) {
+    
+}
+
+month_odo = lapply(setNames(sheets, sheets), function(x) read_excel(f, sheet=x, skip=11)) %>%
+    bind_cols(., .id="Sheet")
+  
+# attaching all dataframes together
+data_frame = bind_rows(data_frame, .id="Sheet")
+```
+
+
+
+
+\newpage
+<!--=========================================================================-->
+# Part b
+<!--=========================================================================-->
+**Estimate his model using a two-step procedure. Please briefly document your
+estimation procedure in words. Create a table similar to the first five columns
+of Table IX on page 1021. If you forward simulate the value function, see
+Pakes Pollard (1989) for reference on how to draw errors and compute confidence
+intervals.**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\newpage
+<!--=========================================================================-->
+# Part c
+<!--=========================================================================-->
+**Estimate his model using a nested fixed point procedure. Create a table
+similar to the first five columns of Table IX on page 1021.**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\newpage
+# Appendix A: R Code
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
