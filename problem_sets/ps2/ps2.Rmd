@@ -15,7 +15,7 @@ header-includes:
    - \usepackage{float}
    - \floatstyle{plaintop}
    - \restylefloat{table}
-knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'Econ_220b_PS2.pdf')) })
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'Econ_220b_PS2_acWatt_2021.pdf')) })
 ---
 
 ```{r setup, message=F, echo=F}
@@ -64,96 +64,155 @@ library(kableExtra)
 \vspace{1em}
 
 
-```{r Load Data, eval=T, cache=Cache, message=F, warning=F, results='asis'}
-# Load data from PS2a with previous log variables
+```{r Table IIa, eval=T, cache=Cache, message=F, warning=F, results='asis'}
+# Load top 11 rows only to get replacement dates and mileage
 f = 'rust_data_clean.xlsx'
 headers = read_excel(f, sheet='header_names', col_names='header')
 sheets = excel_sheets(f)[1:8]
 
-replacement_dates = read_excel(f, sheet=sheets[1], n_max=11, col_names=F, col_types="numeric") %>%
+get_headers = function(f, sheets, i) {
+    # Return dataframe of transformed i'th sheet
+    read_excel(f, sheet=sheets[i], n_max=11, col_names=F, col_types="numeric") %>%
     t() %>%
     data.frame(stringsAsFactors = F) %>%
-    mutate(sheet = sheets[1], 
-           group = 1)
-
-i = 2
-for (sheet in sheets[2:8]) {
-    df_ = read_excel(f, sheet=sheet, n_max=11, col_names=F, col_types="numeric") %>%
-        t() %>%
-        data.frame(stringsAsFactors = F) %>%
-        mutate(sheet = sheet, 
-               group = i)
-    replacement_dates = rbind(replacement_dates, df_)
-    i = i + 1
+    mutate(sheet = sheets[i], 
+           group = i)
 }
 
+# Initialize dataframe
+replacement_dates = get_headers(f, sheets, 1)
+
+# Fill dataframe with other sheets
+for (i in 2:8) {
+    df_ = get_headers(f, sheets, i)
+    replacement_dates = rbind(replacement_dates, df_)
+}
+
+# Pivot dataframe and create variables
 replacement_dates = replacement_dates %>%
     rename(!!set_names(paste0("X", 1:11), str_replace_all(headers$header, " ", "_"))) %>%
     mutate(purchase_date = ymd(str_c(purchase_year, purchase_month, "-01")),
-           replace_date1 = ymd(str_c(engine_replacement_year_1, engine_replacement_month_1, "-01")),
-           replace_date2 = ymd(str_c(engine_replacement_year_2, engine_replacement_month_2, "-01")),
-           pivot_months_to_replace1 = interval(purchase_date, replace_date1) %/% months(1),
-           pivot_months_to_replace2 = interval(replace_date1, replace_date2) %/% months(1),
-           pivot_replace_mileage1 = ifelse(engine_replacement_odometer_reading_1 == 0, NA, engine_replacement_odometer_reading_1),
-           pivot_replace_mileage2 = ifelse(engine_replacement_odometer_reading_2 == 0, NA, 
-                                           engine_replacement_odometer_reading_2 - engine_replacement_odometer_reading_1)) %>%
+           replace_date1 = ymd(str_c(engine_replacement_1_year, engine_replacement_1_month, "-01")),
+           replace_date2 = ymd(str_c(engine_replacement_2_year, engine_replacement_2_month, "-01")),
+           pivot_months_to_replace1 = interval(purchase_date, replace_date1) %/% months(1) + 1,
+           pivot_months_to_replace2 = interval(replace_date1, replace_date2) %/% months(1) + 1,
+           pivot_replace_mileage1 = ifelse(engine_replacement_1_odometer_reading == 0, NA,
+                                           engine_replacement_1_odometer_reading),
+           pivot_replace_mileage2 = ifelse(engine_replacement_2_odometer_reading == 0, NA, 
+                                           engine_replacement_2_odometer_reading - engine_replacement_1_odometer_reading),
+           initial_odometer_reading_date = ymd(str_c(initial_odometer_reading_year, initial_odometer_reading_month, "-01"))) %>%
     select(bus_number, purchase_date, replace_date1, pivot_months_to_replace1, replace_date2, pivot_months_to_replace2, everything())
 
-
-# summary2a = 
-    replacement_dates %>%
-    # filter(!is.na(replacement_dates$pivot_months_to_replace1)) %>%
+# Make Table IIa
+replacement_dates %>%
     pivot_longer(starts_with("pivot_"),
                  names_to = c(".value", "replacement"),
                  names_pattern = "pivot_(.*)(.)",
-        values_drop_na = T
+                 values_drop_na = T
     ) %>%
     mutate(group = as.character(group)) %>%
     bind_rows(mutate(., group = "Full Sample")) %>%
     group_by(group) %>%
     summarize(max_mileage = max(replace_mileage, na.rm=T),
               min_mileage = min(replace_mileage, na.rm=T),
-              mean_mileage = mean(replace_mileage, na.rm=T),
-              sd_mileage = sd(replace_mileage, na.rm=T),
+              mean_mileage = as.integer(mean(replace_mileage, na.rm=T)),
+              sd_mileage = as.integer(sd(replace_mileage, na.rm=T)),
               max_months = max(months_to_replace, na.rm=T),
               min_months = min(months_to_replace, na.rm=T),
               mean_months = mean(months_to_replace, na.rm=T),
               sd_months = sd(months_to_replace, na.rm=T),
               n = n()) %>% 
-  complete(group = c(as.character(1:8), "Full Sample")) %>%
+    complete(group = c(as.character(1:8), "Full Sample")) %>%
     mutate(across(everything(), ~replace_na(.x, 0))) %>%
-    # stargazer(digits=2, summary=F, type='text',
-    #           title="Summary of Replacement Data\\\\(Subsample of buses for which at least I replacement occurred)",
-    #           column.labels = c('Bus\\\\Group', 'Max', 'Min', 'Mean', 'Standard\\\\Deviation',
-    #                 'Max', 'Min', 'Mean', 'Standard\\\\Deviation', 'Number of\\\\Observations'),
-    #           rownames = F)
-  kbl(caption = "Summary of Replacement Data (Subsample of buses for which at least 1 replacement occurred)",
-      col.names = c('Bus Group', 'Max', 'Min', 'Mean', 'Standard Deviation',
-                    'Max', 'Min', 'Mean', 'Standard Deviation', 'Number of Observations'),
-      align = 'cc', digits = 1, booktabs = T,
-      ) %>%
-  kable_styling(latex_options = "HOLD_position") %>%
-column_spec(1, width = "1.5cm") %>%
-column_spec(c(2:4, 6:8), width = "1cm") %>%
-column_spec(c(5, 9), width = "1.5cm") %>%
-column_spec(10, width = "2cm") %>%
-add_header_above(c(" " = 1, "Mileage at Replacement" = 4, "Elapsed Time (Months)" = 4, " " = 1)) %>%
-        row_spec(8, hline_after = T)
+    kbl(caption = "Summary of Replacement Data (Subsample of buses for which at least 1 replacement occurred)",
+        col.names = c('Bus Group', 'Max', 'Min', 'Mean', 'Standard Deviation',
+                      'Max', 'Min', 'Mean', 'Standard Deviation', 'Number of Observations'),
+        align = 'cc', digits = 1, booktabs = T, format.args = list(big.mark = ",")
+    ) %>%
+    kable_styling(latex_options = "HOLD_position") %>%
+    column_spec(1, width = "1.5cm") %>%
+    column_spec(c(2:4, 6:8), width = "1cm") %>%
+    column_spec(c(5, 9), width = "1.5cm") %>%
+    column_spec(10, width = "2cm") %>%
+    add_header_above(c(" " = 1, "Mileage at Replacement" = 4, "Elapsed Time (Months)" = 4, " " = 1)) %>%
+    row_spec(8, hline_after = T)
     
-    
-
-
-    
-    
-
-# summary2b = replacement_dates %>%
-#     filter(is.na(replacement_dates$months_to_replace1))
-
-# need to convert to long first, then combine because there's different number of months for each set
-# month_odo = lapply(setNames(sheets, sheets), function(x) read_excel(f, sheet=x, skip=11)) %>%
-#     bind_cols(., .id="Sheet")
- 
 ```
+
+
+
+```{r Table IIb, eval=T, cache=Cache, message=F, warning=F, results='asis'}
+# Load rest of data below row 11 to get mileage readings
+f = 'rust_data_clean.xlsx'
+sheets = excel_sheets(f)[1:8]
+
+get_data = function(f, sheet_) {
+    # Return transformed dataframe from sheet
+    read_excel(f, sheet=sheet_, skip=11,
+               col_names=paste0('bus_', filter(replacement_dates, sheet==sheet_)$bus_number), 
+               col_types="numeric") %>%
+        mutate(sheet = sheet_, 
+               m = row_number()) %>%
+        pivot_longer(starts_with("bus_"),
+                     names_to = "bus_number",
+                     names_prefix = 'bus_') %>%
+        mutate(bus_number = as.numeric(bus_number)) %>%
+        rename(c('mileage' = 'value'))
+}
+
+# Initialize dataframe
+data = get_data(f, sheets[1])
+
+# Get rest of sheets
+for (i in 2:8) {
+    df_ = get_data(f, sheets[i])
+    data = rbind(data, df_)
+}
+
+# Join on variables from headers and create new variables
+data = data %>%
+    arrange(sheet, bus_number) %>%
+    left_join(replacement_dates %>% select(bus_number,
+                                           initial_odometer_reading_date, 
+                                           replace_date1, 
+                                           group),
+              by = 'bus_number') %>%
+    mutate(date = initial_odometer_reading_date + months(m - 1),
+           group = as.character(group))
+
+# Make Table IIa
+data %>%
+    filter(is.na(replace_date1)) %>%
+    arrange(date) %>%
+    group_by(group) %>%
+    filter(date == last(date), .by_group = TRUE) %>%
+    bind_rows(mutate(., group = "Full Sample")) %>%
+    summarize(max_mileage = max(mileage, na.rm=T),
+              min_mileage = min(mileage, na.rm=T),
+              mean_mileage = as.integer(mean(mileage, na.rm=T)),
+              sd_mileage = as.integer(sd(mileage, na.rm=T)),
+              max_months = max(m, na.rm=T),
+              min_months = min(m, na.rm=T),
+              mean_months = mean(m, na.rm=T),
+              sd_months = sd(m, na.rm=T),
+              n = n()) %>% 
+    complete(group = c(as.character(1:8), "Full Sample")) %>%
+    mutate(across(everything(), ~replace_na(.x, 0))) %>%
+    kbl(caption = "Summary of Censored Data (subsample of buses for which no replacements occurred)",
+        col.names = c('Bus Group', 'Max', 'Min', 'Mean', 'Standard Deviation',
+                      'Max', 'Min', 'Mean', 'Standard Deviation', 'Number of Observations'),
+        align = 'cc', digits = 1, booktabs = T, format.args = list(big.mark = ",")
+    ) %>%
+    kable_styling(latex_options = "HOLD_position") %>%
+    column_spec(1, width = "1.5cm") %>%
+    column_spec(c(2:4, 6:8), width = "1cm") %>%
+    column_spec(c(5, 9), width = "1.5cm") %>%
+    column_spec(10, width = "2cm") %>%
+    add_header_above(c(" " = 1, "Mileage at May 1, 1985" = 4, "Elapsed Time (Months)" = 4, " " = 1)) %>%
+    row_spec(8, hline_after = T)
+    
+```
+
 
 
 
