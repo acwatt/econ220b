@@ -175,10 +175,12 @@ data = data %>%
     left_join(replacement_dates %>% select(bus_number,
                                            initial_odometer_reading_date, 
                                            replace_date1, 
+                                           replace_date2,
                                            group),
               by = 'bus_number') %>%
     mutate(date = initial_odometer_reading_date + months(m - 1),
-           group = as.character(group))
+           group = as.character(group),
+           replaced = ifelse((date == replace_date1 & !is.na(replace_date1)) | (date == replace_date2 & !is.na(replace_date2)), 1, 0))
 
 # Make Table IIa
 data %>%
