@@ -170,12 +170,20 @@ for (i in 2:8) {
 }
 
 # Join on variables from headers and create new variables
+# Need to merge over actual replacement mileage from data
+replacement_dates %>%
+    mutate(mileage_replace1 = ifelse(!is.na(replace_date1), 
+                                     filter(data, bus_number==bus_number, date==replace_date1)$mileage,
+                                     NA))
+
 data = data %>%
     arrange(sheet, bus_number) %>%
     left_join(replacement_dates %>% select(bus_number,
                                            initial_odometer_reading_date, 
                                            replace_date1, 
                                            replace_date2,
+                                           engine_replacement_1_odometer_reading,
+                                           engine_replacement_2_odometer_reading,
                                            group),
               by = 'bus_number') %>%
     mutate(date = initial_odometer_reading_date + months(m - 1),
@@ -286,10 +294,20 @@ c3 = function(x, theta1) theta1[1]*x^0.5
 
 ```
 
-4. Merge replacements into the data
+4. Reset the Mileage whenver replacements are made
 
 ```{r}
+data = data %>%
+    arrange(bus_number, date)
 
+data %>%
+    group_by(bus_number) %>%
+    mutate(mileage2 = case_when(date < replace_date1 & !is.na(replace_date1) ~ mileage))
+
+# For each bus
+for (bus in unique(data$bus_number)) {
+    data[]
+}
 ```
 
 
