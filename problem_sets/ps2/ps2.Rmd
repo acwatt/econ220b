@@ -146,7 +146,7 @@ replacement_dates %>%
 f = 'rust_data_clean.xlsx'
 sheets = excel_sheets(f)[1:8]
 
-get_data = function(f, sheet_) {
+get_data = function(f, sheet_, replacement_dates) {
     # Return transformed dataframe from sheet
     read_excel(f, sheet=sheet_, skip=11,
                col_names=paste0('bus_', filter(replacement_dates, sheet==sheet_)$bus_number), 
@@ -156,39 +156,47 @@ get_data = function(f, sheet_) {
         pivot_longer(starts_with("bus_"),
                      names_to = "bus_number",
                      names_prefix = 'bus_') %>%
-        mutate(bus_number = as.numeric(bus_number)) %>%
+        mutate(bus_number = as.numeric(bus_number),
+               date = filter(replacement_dates, sheet==sheet_, bus_number==bus_number)$initial_odometer_reading_date %m+% months(m-1) ) %>%
         rename(c('mileage' = 'value'))
 }
 
 # Initialize dataframe
-data = get_data(f, sheets[1])
+data = get_data(f, sheets[1], replacement_dates)
 
 # Get rest of sheets
 for (i in 2:8) {
-    df_ = get_data(f, sheets[i])
+    df_ = get_data(f, sheets[i], replacement_dates)
     data = rbind(data, df_)
 }
 
-# Join on variables from headers and create new variables
-# Need to merge over actual replacement mileage from data
-replacement_dates %>%
-    mutate(mileage_replace1 = ifelse(!is.na(replace_date1), 
-                                     filter(data, bus_number==bus_number, date==replace_date1)$mileage,
-                                     NA))
 
+# Merge actual replacement mileage from data at replacement date (not states odometer reading at replacement)
+replacement_dates = replacement_dates %>%
+    left_join(data %>% select(-m),
+              by = c('bus_number'='bus_number', 'sheet' = 'sheet', 'replace_date1' = 'date')) %>%
+    rename(mileage_replace1 = mileage) %>%
+    left_join(data %>% select(-m),
+              by = c('bus_number'='bus_number', 'sheet' = 'sheet', 'replace_date2' = 'date')) %>%
+    rename(mileage_replace2 = mileage)
+
+# Join on variables from headers and create new variables
 data = data %>%
     arrange(sheet, bus_number) %>%
     left_join(replacement_dates %>% select(bus_number,
                                            initial_odometer_reading_date, 
                                            replace_date1, 
                                            replace_date2,
-                                           engine_replacement_1_odometer_reading,
-                                           engine_replacement_2_odometer_reading,
+                                           mileage_replace1,
+                                           mileage_replace2,
                                            group),
               by = 'bus_number') %>%
-    mutate(date = initial_odometer_reading_date + months(m - 1),
+    mutate(date2 = initial_odometer_reading_date + months(m - 1),
            group = as.character(group),
-           replaced = ifelse((date == replace_date1 & !is.na(replace_date1)) | (date == replace_date2 & !is.na(replace_date2)), 1, 0))
+           replaced = ifelse((date == replace_date1 & !is.na(replace_date1)) | (date == replace_date2 & !is.na(replace_date2)), 1, 0),
+           x = case_when(date >= replace_date2 ~ mileage - mileage_replace2,
+                         date >= replace_date1 ~ mileage - mileage_replace1,
+                         TRUE ~ mileage))
 
 # Make Table IIa
 data %>%
@@ -270,12 +278,13 @@ Steps:
 ```{r Discretize the mileage}
 # Create 5,000 mile bins
 data = data %>%
-    mutate(mileage5000 = cut(mileage,
-                             breaks = seq(0, max(data$mileage)+5000, by=5000),
-                             labels = F)) %>%
+    mutate(x5000 = cut(x,
+                       breaks = seq(0, max(data$x)+5000, by=5000),
+                       labels = F,
+                       include.lowest = T)) %>%
     # Create g-bins
-    mutate(gbin = case_when(mileage >= 0 & mileage < 5000 ~ 0,
-                            mileage >=5000 & mileage < 10000 ~ 1,
+    mutate(gbin = case_when(x >= 0 & x < 5000 ~ 0,
+                            x >=5000 & x < 10000 ~ 1,
                             TRUE ~ 2))
 
 ```
