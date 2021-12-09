@@ -322,7 +322,9 @@ for (bus in unique(data$bus_number)) {
 
 
 
-5. Estimate $\theta_3$ using Maximum Likelihood
+5. Estimate $\theta_3$ using Maximum Likelihood 
+Does the mileage stay in the current bin, or move up to the next bin, conditional
+on no replacement?
 
 ```{r}
 # Transition probability
