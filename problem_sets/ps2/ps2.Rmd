@@ -418,13 +418,13 @@ for (group_ in 1:8) {
 ```{r cost functions}
 # Need to normalize all cost functions so c(0, theta1) = 0 (pg. 1015)
 # Polynomial
-c1 = function(x, theta1) theta1[1]*x + theta1[2]*x^2 + theta1[3]*x^3
+c1 = function(xvec, theta1) sapply(xvec, function(x) theta1[1]*x + theta1[2]*x^2 + theta1[3]*x^3)
 # exponential
-c2 = function(x, theta1) theta1[1]*( exp(theta1[2]*x) - 1 )
+c2 = function(xvec, theta1) sapply(xvec, function(x) theta1[1]*( exp(theta1[2]*x) - 1 ))
 # hyperbolic
-c3 = function(x, theta1) theta1[1]/(91-x) - theta1[1]/(91)
+c3 = function(xvec, theta1) sapply(xvec, function(x) theta1[1]/(91-x) - theta1[1]/(91))
 # square root
-c3 = function(x, theta1) theta1[1]*x^0.5
+c3 = function(xvec, theta1) sapply(xvec, function(x) theta1[1]*x^0.5)
 
 ```
 
@@ -454,21 +454,208 @@ U = function(x, i, cost_fun, theta1, RC) {
 
 
 ```{r Define EV}
-XMAX = 5
+N = 90
+
 theta3.fun = function(group_, theta3_df) {
+    #' Return theta3 vector for group_ from theta3 dataframe
     df = theta3_df %>% filter(group==group_)
     theta3 = c(df$theta31, df$theta32, df$theta33)
     return(theta3)
 }
 
+P.fun = function(theta3) {
+    #' Return an N x N markov transition matrix from theta3 probabilities
+    Pmat <- matrix(0, nrow = N, ncol = N)
+    for(col in 1:N){
+        for (row in 1:N) {
+            if (row == col & row < N) {  # Fill in the diagonal with theta31
+                Pmat[row, col] = theta3[1]
+            }
+            if (row == col-1 & row < N-1) {  # Fill in the upper off-diagonal with theta32
+                Pmat[row, col] = theta3[2]
+            }
+            if (row == col-2 & row < N-1) {  # Fill in the upper off-diagonal with theta32
+                Pmat[row, col] = theta3[3]
+            }
+        }
+    }
+    # Some manual entry
+    Pmat[N, N] = 1
+    Pmat[N-1, N] = 1 - theta3[2]
+    return(Pmat)
+}
+
 g.fun = function(y, theta3) {
+    #' Return theta3 probability for value y (# of bins jumped this period)
     if (y==0) return(theta3[1])
     if (y==1) return(theta3[2])
     if (y==2) return(theta3[3])
     else print('WRONG VALUE OF y')
 }
 
-T.inner = function(x, y, i, ufun, EVfun, beta, xmax=XMAX) {
+T.EV = function(P, c, beta, EV, RC) {
+    #' Return new nx1 EV vector
+    #' @param P nxn markov transition matrix (no engine replacement)
+    #' @param c nx1 cost vector, given theta1
+    #' @param beta discount factor
+    #' @param EV old EV vector
+    #' @param RC engine replacement cost
+    return(
+        P %*% log(
+            exp( -c + beta*EV ) +
+            exp( -RC - c[1] + beta*EV[1] )
+        )
+    )
+}
+
+pk.fun = function(c, beta, EV, RC) {
+    #' Return new nx1 values for P(0|x, theta)
+    #' @param c nx1 cost vector, given theta1
+    #' @param beta discount factor
+    #' @param EV old EV vector
+    #' @param RC engine replacement cost
+    return(
+        1/(
+            1 + exp(c - beta*EV - RC - c[1] + beta*EV[1])
+        )
+    )
+}
+
+
+EV.sequential = function(theta1, theta3, c, RC, P, beta,
+                  iteration_max = 10000, verbose = F,
+                  accuracy_threshold = 1e-6) {
+    #' Return sequential approximation EV given theta1, theta3, cost function, and RC
+    #' @param theta1 kx1 vector of theta1 parameters, k=# of params of cost_fun
+    #' @param theta3 3x1 vector of theta3 transition probabilities
+    #' @param cost_fun cost function that takes scalar x and theta1 kx1 vector
+    #' @param RC scalar, engine replacement cost
+    #' @param iteration_max integer, max number of iterations for approximating EV
+    #' @param verbose bool, TRUE means print more information during iterations
+    #' @param accuracy_threshold float, small number to get below when iterating
+    #'      toward EV fixed point
+
+    x = 1:N;  EVold = rep(0, N);
+    start_t = proc.time()
+    # norms = c()
+    
+    # Iterate toward fixed point EV
+    for (k in 1:iteration_max) {
+        # Get new EV
+        EVnew = T.EV(P, c, beta, EVold, RC)
+        # Calculate distance metric
+        diff = abs(EVold - EVnew)
+        sup_norm = max(diff)
+        # norms[k] = sup_norm
+        if (k%%100 == 0 & verbose) print(paste('iteration', k, ' norm:', sup_norm))
+        if (sup_norm < accuracy_threshold) {
+            if (verbose) {
+                print('WITHIN TOLERANCE! EV function approximated.')
+                print(paste('Total seconds:', proc.time()[3] - start_t[3]))
+                print(paste('Average seconds per iteration:', 
+                            (proc.time()[3] - start_t[3]) / iteration_max ))
+            }
+            return(list(EVnew=EVnew, EVold=EVold))
+        }
+        EVold = EVnew
+    }
+    print(paste('MAX ITERATIONS REACHED! EV function approximated to', sup_norm))
+    print(paste('Total seconds:', proc.time()[3] - start_t[3]))
+    print(paste('Average seconds per iteration:', 
+                (proc.time()[3] - start_t[3]) / iteration_max ))
+    return(list(EVnew=EVnew, EVold=EVold))
+    # Plot norm distance vs iterations, log-log scale
+    # data.frame(y=norms) %>%
+    #     mutate(x=row_number()) %>%
+    #     ggplot() + geom_line(aes(x,y)) +
+    #     xlab('iterations (log10 scale)') + ylab('Sup Norm (log10 scale)') +
+    #     ggtitle('Sup Norm between EV and EV Sequential update') +
+    #     scale_y_continuous(trans='log10') + scale_x_continuous(trans='log10')
+}
+
+
+Tprime.fun = function(beta, P, pk) {
+    return(
+        beta*(
+            cbind(
+                1 - rowSums( P[,2:N] * pk[2:N] ),  # firstcol
+                P[,2:N] * pk[2:N]  # n-1 right cols
+            )
+        )
+    )
+}
+
+
+EV.nk = function(EVold, Tprime, c, RC, P, beta,
+                 iteration_max = 1000, verbose = F,
+                 accuracy_threshold = 1e-10, print_every=100) {
+    #' Return Newton-Kantorovich approximated EV
+    x = 1:N
+    start_t = proc.time()
+    # Iterate toward fixed point EV
+    for (k in 1:iteration_max) {
+        # Get new EV
+        T.EV(P, c, beta, EVold, RC)
+        EVnew = EVold - solve(diag(N) - Tprime) %*% (EVold - T.EV(P, c, beta, EVold, RC))
+        # Calculate distance metric
+        sup_norm = max(abs(EVold - EVnew))
+        if (k%%print_every == 0 & verbose) print(paste('iteration', k, ' norm:', sup_norm))
+        if (sup_norm < accuracy_threshold) {
+            if (verbose) {
+                print('WITHIN TOLERANCE! EV function approximated.')
+                print(paste('Total seconds:', proc.time()[3] - start_t[3]))
+                print(paste('Average seconds per iteration:', 
+                            (proc.time()[3] - start_t[3]) / iteration_max ))
+            }
+            
+            # Recenter the value function (max over x)
+            K = max(-c + beta*EVnew)
+            
+            # Compute derivatives of EV w.r.t. theta
+            dTdb = (-beta * (1-beta) * (EVnew[1] + P * (EVnew - EVnew[1]) * pk))
+            
+            dTdRC = P %*% pk - 1
+            
+            # Derivative of cost function w.r.t. theta1
+            # c(x; theta1) = theta1[1]*( exp(theta1[2]*x) - 1 )
+            dc = 
+            dTdtheta = -(P %*% dc) * pk
+            
+            return(list(EVnew=EVnew, EVold=EVold))
+        }
+        EVold = EVnew
+    }
+    print(paste('MAX ITERATIONS REACHED! EV function approximated to', sup_norm))
+    print(paste('Total seconds:', proc.time()[3] - start_t[3]))
+    print(paste('Average seconds per iteration:', 
+                (proc.time()[3] - start_t[3]) / iteration_max ))
+    return(list(EVnew=EVnew, EVold=EVold))
+}
+
+theta1 = c(5, 0.01)
+group_ = 1
+theta3 = theta3.fun(group_ = group_, theta3_df)
+beta = 0.99
+RC = 10
+c = c2(x, theta1)
+P = P.fun(theta3)
+EV_out = EV.sequential(theta1, theta3, c, RC, P, beta, verbose=F)
+pk = pk.fun(c, beta, EV, RC)
+Tprime = Tprime.fun(beta, P, pk)
+EVnew = EV.nk(EV_out$EVnew, Tprime, c, RC, P, beta)
+
+
+
+```
+
+
+
+
+
+```{r old stuff, eval=F}
+
+
+T.inner = function(x, y, i, ufun, EVfun, beta, xmax=N) {
     if (x+y > xmax) return(0)
     inner = exp(ufun(x+y, i) + beta*EVfun(x+y, i))
     # print(paste('x:', x,'  y:', y, '  i:', i, '  u:', ufun(x+y, i), '  EV:', EVfun(x+y, i)))
@@ -477,7 +664,7 @@ T.inner = function(x, y, i, ufun, EVfun, beta, xmax=XMAX) {
 
 T.inner_sum = function(x, y, ufun, EVfun, beta) {
     #' Return sum of T.inner over jvec
-    inner_vec = sapply(c(0, 1), function(jvec) T.inner(x, y, jvec, ufun, EVfun, beta))
+    inner_vec = sapply(c(0, 1), function(j) T.inner(x, y, j, ufun, EVfun, beta))
     # print('inner_vec:')
     # print(inner_vec)
     inner_sum = sum(inner_vec)
@@ -491,29 +678,33 @@ T.outer = function(x, y, ufun, EVfun, theta3, beta) {
 }
 
 T.outer_sum = function(x, ufun, EVfun, theta3, beta) {
-    outer_vec = sapply(c(0, 1, 2), function(yvec) T.outer(x, yvec, ufun, EVfun, theta3, beta))
+    yvec = comprehenr::to_vec(for (y in 0:2) if (x + y <= N) y)
+    outer_vec = sapply(yvec, function(y) T.outer(x, y, ufun, EVfun, theta3, beta))
     outer_sum = sum(outer_vec)
-}
-
-EV.fun = function(EVvec) {
-    #' Return x,i element of EVvec, assuming EVvec is a 180 element vector, with
-    #' the first 90 elements of x, i=0, and the next 90 elements of x, i=1
-    EVfun = function(x, i) {
-        index = x + 90*i
-        return(EVvec[index])
-    }
-    return(EVfun)
 }
 
 EV2 = function(EVfun, cost_fun, theta1, RC, theta3, beta) {
     #' Return transformed EV function
-    EVnew = function(x, i) {
-        ufun = U(x, i, cost_fun, theta1, RC)
-        T.outer_sum(x, ufun, EVfun, theta3, beta)
+    
+    EVnew = function(x) {
+        # sum over possible y
+        yvec = comprehenr::to_vec(for (y in 0:2) if (x + y <= N) y)
+        sum(sapply(yvec, function(y) {
+                log(
+                    exp(-cost_fun(x+y, theta1) + beta*EVfun(x+y)) +
+                    exp(-RC - cost_fun(0, theta1) + beta*EVfun(0))
+                ) * g.fun(y, theta3)
+        }))
     }
+    # EVnew = function(x, i) {
+    #     ufun = U(x, i, cost_fun, theta1, RC)
+    #     T.outer_sum(x, ufun, EVfun, theta3, beta)
+    # }
     
     return(EVnew)
 }
+
+
 
 EVold = function(x, i) return(0)
 theta1 = c(1, 1)
@@ -522,7 +713,7 @@ theta3 = theta3.fun(group_ = group_, theta3_df)
 beta = 0.99
 RC = 1
 cost_fun = c2
-xvec = 1:XMAX
+xvec = 1:N
 for (k in 1:20) {
     start_t = proc.time()
     # print(paste('iteration', k, ' EVvec:'))
@@ -549,14 +740,7 @@ for (k in 1:20) {
     EVold = EVnew
     print(paste('iteration seconds:', proc.time()[3] - start_t[3]))
 }
-
-
-
-
 ```
-
-
-
 
 
 
