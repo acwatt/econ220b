@@ -292,39 +292,7 @@ data = data %>%
 
 3. Define the cost functions to be estimated
 
-```{r cost functions}
-# Need to normalize all cost functions so c(0, theta1) = 0 (pg. 1015)
-# Polynomial
-c1 = function(x, theta1) theta1[1]*x + theta1[2]*x^2 + theta1[3]*x^3
-# exponential
-c2 = function(x, theta1) theta1[1]*exp(theta1[2]*x) - 1
-# hyperbolic
-c3 = function(x, theta1) theta1[1]/(91-x) - theta1[1]/(91)
-# square root
-c3 = function(x, theta1) theta1[1]*x^0.5
 
-```
-
-3.b Define utility function
-
-```{r utility function}
-U = function(cost_fun, theta1, d, RC, e1=0, e0=0) {
-    #' Returns utility
-    #' 
-    #' @param cost_fun function, returning cost, with inputs x, theta1
-    #' @param theta1 vector, matching the necessary dimensionality for cost_fun
-    #' @param d integer, 0 or 1, represents no engine replacement or replacement
-    #' @param RC float, expected cost of engine replacement
-    #' @param e1 float, unobserved replacement cost shock
-    #' @param e0 float, unobserved continuation (reported engine quality) shock
-    if (d == 1) { # replaced the engine
-        return( -RC - cost_fun(0, theta1) + e1 )
-    }
-    if (d == 0) { # did not replace the engine
-        return( -cost_fun(x, theta1) + e0 )
-    }
-}
-```
 
 4.
 
@@ -363,7 +331,7 @@ data_temp = data %>%
     arrange(group, bus_number, date)
 
 
-single_lh = function(theta3, g_vec) {
+single_llh = function(theta3, g_vec) {
     #' Return product of all the transition probabilities
     #' @param theta3 vector of 3 transition probabilities
     #' @param g_vec vector of g values, how many x-bins did this bus advance this
@@ -373,11 +341,11 @@ single_lh = function(theta3, g_vec) {
     index = as.vector(g_vec) + 1
     # Estimate joint probability conditional on theta3 (product of each bus
     # event of advancing the specified number of bins)
-    product = 1
+    s = 0
     for (idx in index) {
-        product = product * theta3[idx]
+        s = s + log(theta3[idx])
     }
-    return(product)
+    return(s)
 }
 
 
@@ -394,15 +362,15 @@ minus_joint_llh = function(theta3, df) {
     # theta3 = theta3 / sum(theta3)
     # Iterate through buses, get log likelihood, add up all bus LL's
     buses = unique(df$bus_number)
-    summ = 0
+    nLL = 0
     for (bus in buses) {
         gvec = filter(df, bus_number == bus)$g
-        summ = summ - log(single_lh(theta3, gvec))
+        nLL = nLL - single_llh(theta3, gvec)
     }
     penalty1 = (sum(theta3) - 1)^2 * 1e6
     penalty2 = ifelse(max(theta3) > 1, (max(theta3) - 1)^2 * 1e8, 0)
     penalty3 = ifelse(min(theta3) < 0, (min(theta3) - 0)^2 * 1e8, 0)
-    return(summ + penalty1 + penalty2 + penalty3)
+    return(nLL + penalty1 + penalty2 + penalty3)
 }
 
 data_g = data_temp %>% filter(group == 8)
@@ -419,39 +387,173 @@ for (group_ in 1:8) {
     theta3_df = rbind(theta3_df, df_)
 }
 
-out1$estimate / sum(out1$estimate)
 
 
 
-data_temp %>%
-    filter(group == 1) %>%
-    '$'(g) %>%
-    tabulate()
-
-
-
-
-
-    fit1 = mle(minus_joint_llh, theta3 = theta3.start,
-         method = "L-BFGS-B", lower = c(0,0,0), upper = c(1,1,1),
-         fixed = list(df = data_g))
-
-nLL_wrapper = function(theta3 = theta3.start) {
-    return(data %>%
-        arrange(date) %>%
-        group_by(group, bus_number) %>%
-        distinct(mileage, .keep_all = T) %>%
-        ungroup() %>%
-        arrange(group, bus_number, date) %>%
-        minus_joint_llh(theta3, data = ., group = 1)
-    )
-}
-
-mle(nLL_wrapper, start = list(theta3 = theta3.start))
+# data_temp %>%
+#     filter(group == 1) %>%
+#     '$'(g) %>%
+#     tabulate()
+# 
+#     fit1 = mle(minus_joint_llh, theta3 = theta3.start,
+#          method = "L-BFGS-B", lower = c(0,0,0), upper = c(1,1,1),
+#          fixed = list(df = data_g))
+# 
+# nLL_wrapper = function(theta3 = theta3.start) {
+#     return(data %>%
+#         arrange(date) %>%
+#         group_by(group, bus_number) %>%
+#         distinct(mileage, .keep_all = T) %>%
+#         ungroup() %>%
+#         arrange(group, bus_number, date) %>%
+#         minus_joint_llh(theta3, data = ., group = 1)
+#     )
+# }
+# 
+# mle(nLL_wrapper, start = list(theta3 = theta3.start))
 
 
 ```
 
+```{r cost functions}
+# Need to normalize all cost functions so c(0, theta1) = 0 (pg. 1015)
+# Polynomial
+c1 = function(x, theta1) theta1[1]*x + theta1[2]*x^2 + theta1[3]*x^3
+# exponential
+c2 = function(x, theta1) theta1[1]*( exp(theta1[2]*x) - 1 )
+# hyperbolic
+c3 = function(x, theta1) theta1[1]/(91-x) - theta1[1]/(91)
+# square root
+c3 = function(x, theta1) theta1[1]*x^0.5
+
+```
+
+3.b Define utility function
+
+```{r utility function}
+U = function(x, i, cost_fun, theta1, RC) {
+    #' Returns utility
+    #' 
+    #' @param cost_fun function, returning cost, with inputs x, theta1
+    #' @param theta1 vector, matching the necessary dimensionality for cost_fun
+    #' @param d integer, 0 or 1, represents no engine replacement or replacement
+    #' @param RC float, expected cost of engine replacement
+    #' @param e1 float, unobserved replacement cost shock
+    #' @param e0 float, unobserved continuation (reported engine quality) shock
+    ufun = function(x, i) {
+        if (i == 1) { # replaced the engine
+            return( -RC - cost_fun(0, theta1))
+        }
+        if (i == 0) { # did not replace the engine
+            return( -cost_fun(x, theta1))
+        }
+    }
+    return(ufun)
+}
+```
+
+
+```{r Define EV}
+XMAX = 5
+theta3.fun = function(group_, theta3_df) {
+    df = theta3_df %>% filter(group==group_)
+    theta3 = c(df$theta31, df$theta32, df$theta33)
+    return(theta3)
+}
+
+g.fun = function(y, theta3) {
+    if (y==0) return(theta3[1])
+    if (y==1) return(theta3[2])
+    if (y==2) return(theta3[3])
+    else print('WRONG VALUE OF y')
+}
+
+T.inner = function(x, y, i, ufun, EVfun, beta, xmax=XMAX) {
+    if (x+y > xmax) return(0)
+    inner = exp(ufun(x+y, i) + beta*EVfun(x+y, i))
+    # print(paste('x:', x,'  y:', y, '  i:', i, '  u:', ufun(x+y, i), '  EV:', EVfun(x+y, i)))
+    return(inner)
+}
+
+T.inner_sum = function(x, y, ufun, EVfun, beta) {
+    #' Return sum of T.inner over jvec
+    inner_vec = sapply(c(0, 1), function(jvec) T.inner(x, y, jvec, ufun, EVfun, beta))
+    # print('inner_vec:')
+    # print(inner_vec)
+    inner_sum = sum(inner_vec)
+    return(inner_sum)
+}
+
+T.outer = function(x, y, ufun, EVfun, theta3, beta) {
+    inner_sum = T.inner_sum(x, y, ufun, EVfun, beta)
+    # print(paste('inner_sum:', inner_sum))
+    log(inner_sum) * g.fun(y, theta3)
+}
+
+T.outer_sum = function(x, ufun, EVfun, theta3, beta) {
+    outer_vec = sapply(c(0, 1, 2), function(yvec) T.outer(x, yvec, ufun, EVfun, theta3, beta))
+    outer_sum = sum(outer_vec)
+}
+
+EV.fun = function(EVvec) {
+    #' Return x,i element of EVvec, assuming EVvec is a 180 element vector, with
+    #' the first 90 elements of x, i=0, and the next 90 elements of x, i=1
+    EVfun = function(x, i) {
+        index = x + 90*i
+        return(EVvec[index])
+    }
+    return(EVfun)
+}
+
+EV2 = function(EVfun, cost_fun, theta1, RC, theta3, beta) {
+    #' Return transformed EV function
+    EVnew = function(x, i) {
+        ufun = U(x, i, cost_fun, theta1, RC)
+        T.outer_sum(x, ufun, EVfun, theta3, beta)
+    }
+    
+    return(EVnew)
+}
+
+EVold = function(x, i) return(0)
+theta1 = c(1, 1)
+group_ = 1
+theta3 = theta3.fun(group_ = group_, theta3_df)
+beta = 0.99
+RC = 1
+cost_fun = c2
+xvec = 1:XMAX
+for (k in 1:20) {
+    start_t = proc.time()
+    # print(paste('iteration', k, ' EVvec:'))
+    # print(comprehenr::to_vec(for (x in xvec) for (i in 0:1) abs(EVold(x, i))))
+    # Reduce old EV to vector function (instead of possibly many recursive functions)
+    EVvec = comprehenr::to_vec(for (i in 0:1) for (x in xvec) EVold(x, i))
+    EVold = function(x, i) return(EVvec[max(xvec)*i + x])
+    # Get new EV
+    EVnew = EV2(EVfun = EVold,
+                cost_fun = cost_fun,
+                theta1 = theta1,
+                RC = RC,
+                theta3 = theta3,
+                beta = beta)
+    # Calculate distance metric
+    diff = comprehenr::to_vec(for (i in 0:1) for (x in xvec) abs(EVold(x, i) - EVnew(x, i)))
+    sup_norm = max(diff)
+    print(paste('iteration', k, ' norm:', sup_norm))
+    Sys.sleep(5)
+    if (sup_norm < 1e-6) {
+        print('WITHIN TOLERANCE! EV function approximated.')
+        break
+    }
+    EVold = EVnew
+    print(paste('iteration seconds:', proc.time()[3] - start_t[3]))
+}
+
+
+
+
+```
 
 
 
