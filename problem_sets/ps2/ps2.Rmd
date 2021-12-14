@@ -575,18 +575,14 @@ EV.sequential = function(theta1, theta3, c, RC, P, beta,
 
 
 Tprime.fun = function(beta, P, pk) {
-    return(
-        beta*(
-            cbind(
-                1 - rowSums( P[,2:N] * pk[2:N] ),  # firstcol
-                P[,2:N] * pk[2:N]  # n-1 right cols
-            )
-        )
-    )
+    return(beta*(cbind(
+        1 - rowSums( P[,2:N] * pk[2:N] ),  # firstcol
+        P[,2:N] * pk[2:N]  # n-1 right cols
+    )))
 }
 
 
-EV.nk = function(EVold, Tprime, c, RC, P, beta,
+EV.nk = function(EVold, Tprime, c, dc, RC, P, beta,
                  iteration_max = 1000, verbose = F,
                  accuracy_threshold = 1e-10, print_every=100) {
     #' Return Newton-Kantorovich approximated EV
@@ -602,26 +598,37 @@ EV.nk = function(EVold, Tprime, c, RC, P, beta,
         if (k%%print_every == 0 & verbose) print(paste('iteration', k, ' norm:', sup_norm))
         if (sup_norm < accuracy_threshold) {
             if (verbose) {
-                print('WITHIN TOLERANCE! EV function approximated.')
+                print(paste('WITHIN TOLERANCE! EV function approximated.', k, 'iterations'))
                 print(paste('Total seconds:', proc.time()[3] - start_t[3]))
                 print(paste('Average seconds per iteration:', 
                             (proc.time()[3] - start_t[3]) / iteration_max ))
             }
-            
+            # browser()
             # Recenter the value function (max over x)
             K = max(-c + beta*EVnew)
             
-            # Compute derivatives of EV w.r.t. theta
-            dTdb = (-beta * (1-beta) * (EVnew[1] + P * (EVnew - EVnew[1]) * pk))
+            # Derivative of T w.r.t. beta
+            dTdb = (-beta * (1-beta) * (EVnew[1] + P %*% (EVnew - EVnew[1]) * pk))
             
+            # Derivative of T w.r.t. RC
             dTdRC = P %*% pk - 1
             
-            # Derivative of cost function w.r.t. theta1
-            # c(x; theta1) = theta1[1]*( exp(theta1[2]*x) - 1 )
-            dc = 
-            dTdtheta = -(P %*% dc) * pk
+            # Derivative of T w.r.t. theta1
+            dTdtheta1 = -(P %*% dc) * pk
             
-            return(list(EVnew=EVnew, EVold=EVold))
+            # Derivative of T w.r.t. theta3
+            dtp = log(exp(-c + beta*EVnew) + exp(-RC - c[1] + beta*EVnew[1]))
+            dTdtheta3 = cbind(
+                rbind(dtp[1:N-2] - dtp[3:N], dtp[N-1] - dtp[N], 0),
+                rbind(dtp[2:N-1] - dtp[3:N], 0, 0)
+            )
+            
+            # Bind all parameter derivative vectors together
+            dTdtheta = cbind(dTdb, dTdRC, dTdtheta1, dTdtheta3)
+            # Derivative of EV w.r.t. theta
+            dEV = solve(diag(n) - Tprime) %*% dTdtheta
+            
+            return(list(EVnew=EVnew, EVold=EVold, dEV=dEV))
         }
         EVold = EVnew
     }
@@ -637,13 +644,20 @@ group_ = 1
 theta3 = theta3.fun(group_ = group_, theta3_df)
 beta = 0.99
 RC = 10
+x = 1:N
 c = c2(x, theta1)
+# Derivative of cost function w.r.t. theta1
+dc = matrix(c(exp(theta1[2]*x), theta1[1]*x*exp(theta1[2]*x)), nrow=N, ncol=2)
 P = P.fun(theta3)
-EV_out = EV.sequential(theta1, theta3, c, RC, P, beta, verbose=F)
-pk = pk.fun(c, beta, EV, RC)
+EV_out = EV.sequential(theta1, theta3, c, RC, P, beta, verbose=F, accuracy_threshold = 1e-3)
+pk = pk.fun(c, beta, EV_out$EVnew, RC)
 Tprime = Tprime.fun(beta, P, pk)
-EVnew = EV.nk(EV_out$EVnew, Tprime, c, RC, P, beta)
+EVnew = EV.nk(EV_out$EVnew, Tprime, c, dc, RC, P, beta, 
+              verbose = T, accuracy_threshold = 1e-6)
 
+
+# Need to solve conformability of dTdtheta1 = -(P %*% dc) * pk
+# What dim should dc be? n x 2?
 
 
 ```

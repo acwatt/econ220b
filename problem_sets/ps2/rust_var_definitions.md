@@ -11,3 +11,7 @@ pk = (P(0|1,theta),..., P(0|n,theta))'
 
 P = n x n markov transition matrix (2.13)
 P = (Pr(
+
+~ = horizontal concatenation
+| = vertical concatentaion
+sumc(x) = column vector: column sum for each column of x. 
