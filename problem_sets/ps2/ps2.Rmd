@@ -353,67 +353,106 @@ minus_joint_llh = function(theta3, df) {
     #' Return product of all transition probabilities for all buses in group
 
     # If any theta is negative, return NA to prevent using this as solution
-    # Can't use this with nlm(), but might with mle()
-    # if (min(theta3) < 0) return(NA)
-    # if (max(theta3) > 1) return(NA)
-    # if (sum(theta3) > 1) return(NA)
+    # if (min(theta3) < 0) return(Inf)
+    # if (max(theta3) > 1) return(Inf)
+    # if (sum(theta3) > 1) return(Inf)
     
     # Make sure theta3 items sum to 1
     # theta3 = theta3 / sum(theta3)
-    # Iterate through buses, get log likelihood, add up all bus LL's
+    # Iterate through buses, get log likelihood for each bus, add up all bus LL's
     buses = unique(df$bus_number)
     nLL = 0
     for (bus in buses) {
         gvec = filter(df, bus_number == bus)$g
-        nLL = nLL - single_llh(theta3, gvec)
+        nLL = nLL - single_llh(theta3, gvec) # changing to negative LL using (-)
     }
     penalty1 = (sum(theta3) - 1)^2 * 1e6
     penalty2 = ifelse(max(theta3) > 1, (max(theta3) - 1)^2 * 1e8, 0)
     penalty3 = ifelse(min(theta3) < 0, (min(theta3) - 0)^2 * 1e8, 0)
-    return(nLL + penalty1 + penalty2 + penalty3)
+    # print(nLL + penalty1 + penalty2 + penalty3)
+    return(nLL + penalty1 + penalty2 + penalty3) # + penalty1 + penalty2 + penalty3
 }
 
-data_g = data_temp %>% filter(group == 8)
-out1 = nlm(minus_joint_llh, theta3.start, df = data_g, print.level = 1)
-sum(out1$estimate)
+# data_g = data_temp %>% filter(group == 8)
+# out1 = nlm(minus_joint_llh, theta3.start, df = data_g, print.level = 1)
+# sum(out1$estimate)
+
 
 # use nlm() to minimize -log(likelihood(param))
 theta3_df = data.frame(theta31=double(), theta32=double(), theta33=double(), group=integer())
 for (group_ in 1:8) {
     data_g = data_temp %>% filter(group == group_)
-    out = nlm(minus_joint_llh, theta3.start, df = data_g, print.level = 0)
+    out = nlm(minus_joint_llh, theta3.start, df = data_g, print.level = 1)
     est = out$estimate / sum(out$estimate)
     df_ = data.frame(theta31 = est[1], theta32 = est[2], theta33 = est[3], group=group_)
     theta3_df = rbind(theta3_df, df_)
 }
 
 
+```
+
+```{r other optimization functions with constraints, eval=F}
+# optim
+out2 = optim(theta3.start, minus_joint_llh, method = "L-BFGS-B", df = data_g, lower = c(0,0,0), upper = c(1,1,1))
+sum(out2$par)
 
 
-# data_temp %>%
-#     filter(group == 1) %>%
-#     '$'(g) %>%
-#     tabulate()
-# 
-#     fit1 = mle(minus_joint_llh, theta3 = theta3.start,
-#          method = "L-BFGS-B", lower = c(0,0,0), upper = c(1,1,1),
-#          fixed = list(df = data_g))
-# 
-# nLL_wrapper = function(theta3 = theta3.start) {
-#     return(data %>%
-#         arrange(date) %>%
-#         group_by(group, bus_number) %>%
-#         distinct(mileage, .keep_all = T) %>%
-#         ungroup() %>%
-#         arrange(group, bus_number, date) %>%
-#         minus_joint_llh(theta3, data = ., group = 1)
-#     )
-# }
-# 
-# mle(nLL_wrapper, start = list(theta3 = theta3.start))
+# nloptr
+library('nloptr')
+# iterate over groups (temp group = 8)
+data_g = data_temp %>% filter(group == 8)
+# Objective Function
+minimize_f = function(theta3) minus_joint_llh(theta3, data_g)
+
+# Equality constraints
+eval_g_eq = function(theta3) theta3[1] + theta3[2] + theta3[3] - 1
+
+# Set optimization options.
+local_opts <- list( "algorithm" = "NLOPT_LD_MMA", "xtol_rel" = 1.0e-6 )
+opts <- list( "algorithm"= "NLOPT_LD_AUGLAG",
+              "xtol_rel"= 1.0e-6,
+              "maxeval"= 1000,
+              "local_opts" = local_opts,
+              "print_level" = 0 )
+
+# Optimize
+nloptr(x0 = theta3.start,
+       eval_f = minimize_f,
+       lb = c(0,0,0),
+       ub = c(1,1,1),
+       eval_g_eq = eval_g_eq,
+       opts = opts
+)
+
+
+
+# mle
+data_temp %>%
+    filter(group == 1) %>%
+    '$'(g) %>%
+    tabulate()
+
+    fit1 = mle(minus_joint_llh, theta3 = theta3.start,
+         method = "L-BFGS-B", lower = c(0,0,0), upper = c(1,1,1),
+         fixed = list(df = data_g))
+
+nLL_wrapper = function(theta3 = theta3.start) {
+    return(data %>%
+        arrange(date) %>%
+        group_by(group, bus_number) %>%
+        distinct(mileage, .keep_all = T) %>%
+        ungroup() %>%
+        arrange(group, bus_number, date) %>%
+        minus_joint_llh(theta3, data = ., group = 1)
+    )
+}
+
+mle(nLL_wrapper, start = list(theta3 = theta3.start))
 
 
 ```
+
+
 
 ```{r cost functions}
 # Need to normalize all cost functions so c(0, theta1) = 0 (pg. 1015)
@@ -603,7 +642,7 @@ EV.nk = function(EVold, Tprime, c, dc, RC, P, beta,
                 print(paste('Average seconds per iteration:', 
                             (proc.time()[3] - start_t[3]) / iteration_max ))
             }
-            # browser()
+            
             # Recenter the value function (max over x)
             K = max(-c + beta*EVnew)
             
@@ -612,21 +651,23 @@ EV.nk = function(EVold, Tprime, c, dc, RC, P, beta,
             
             # Derivative of T w.r.t. RC
             dTdRC = P %*% pk - 1
-            
+            # browser()
             # Derivative of T w.r.t. theta1
-            dTdtheta1 = -(P %*% dc) * pk
+            d = (P %*% dc)
+            dTdtheta1 = -matrix(c((d[,1] * pk), (d[,2] * pk)), nrow=N, ncol=2)
             
+            # browser()
             # Derivative of T w.r.t. theta3
             dtp = log(exp(-c + beta*EVnew) + exp(-RC - c[1] + beta*EVnew[1]))
             dTdtheta3 = cbind(
-                rbind(dtp[1:N-2] - dtp[3:N], dtp[N-1] - dtp[N], 0),
-                rbind(dtp[2:N-1] - dtp[3:N], 0, 0)
+                c(dtp[1:(N-2)] - dtp[3:N], dtp[(N-1)] - dtp[N], 0),
+                c(dtp[2:(N-1)] - dtp[3:N], 0, 0)
             )
             
             # Bind all parameter derivative vectors together
             dTdtheta = cbind(dTdb, dTdRC, dTdtheta1, dTdtheta3)
             # Derivative of EV w.r.t. theta
-            dEV = solve(diag(n) - Tprime) %*% dTdtheta
+            dEV = solve(diag(N) - Tprime) %*% dTdtheta
             
             return(list(EVnew=EVnew, EVold=EVold, dEV=dEV))
         }
