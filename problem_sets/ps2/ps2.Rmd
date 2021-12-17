@@ -689,20 +689,67 @@ x = 1:N
 c = c2(x, theta1)
 # Derivative of cost function w.r.t. theta1
 dc = matrix(c(exp(theta1[2]*x), theta1[1]*x*exp(theta1[2]*x)), nrow=N, ncol=2)
+# Generate the P matrix ()
 P = P.fun(theta3)
 EV_out = EV.sequential(theta1, theta3, c, RC, P, beta, verbose=F, accuracy_threshold = 1e-3)
 pk = pk.fun(c, beta, EV_out$EVnew, RC)
 Tprime = Tprime.fun(beta, P, pk)
 EVnew = EV.nk(EV_out$EVnew, Tprime, c, dc, RC, P, beta, 
               verbose = T, accuracy_threshold = 1e-6)
+# Choose the stepsize lambda
+    # define D(theta) from (3.10)
+    # define f(lambda; theta) = L(theta + lambda*D(theta))
+    # define lambda_new from (3.13) using secant method
+        # l2 = l1 - [(l1 - l0)*df(l1)/dl]/[df(l1)/dl - df(l0)/dl]
+    # continue linesearch for lambda until (% inc in L) > (tolerance) and # iterations in (min_iter, max_iter)
 
 
-# Need to solve conformability of dTdtheta1 = -(P %*% dc) * pk
-# What dim should dc be? n x 2?
+# Recenter EV
+
+
+
+
 
 
 ```
 
+
+
+evaluates the loglikelihood function `ll`, its derivatives `dll`,and the
+information matrix (the cumulative outer product of the derivatives of the
+individual loglikelihood terms). Consider first the evaluation of the
+loglikelihood function. The general formula for the full and partial likelihood
+function is given in equation (2.5) and (2.8) in chapter 2. The R code
+(translated from GAUSS code) for these functions is given below:
+```{r dLL}
+# Calculating log-likelihood and derivative dLL
+
+# Create T*M x 1 vector of P(0|x^m_t) for t in T and m in M (^1_1, ^1_2, ..., ^1_T, ^2_1, ...)
+    # Take X bins from data, use to select indices of pk vector
+lp = data %>%
+    arrange(bus_number, m) %>%
+    '$'(x5000) %>%
+    pk[.]
+
+# Create 2 x 1 vector of logs of parameters
+```
+
+
+
+
+
+The basic parameter iteration in BHHH given in equations (3.7), (3.10), and (3.13) have a
+translation into GAUSS code given by
+```{r BHHH}
+# BHHH algorithm from (3.26)
+theta_new = theta_old + labmda2*Dtheta  # Dtheta = D(theta_old)
+
+Dtheta = solve(H) %*% dLL  # dLL = derivatives of log likelihood
+
+lambda2 = lambda1 - (lambda1 - lambda0)*df1/(df1 - df0)  # dfk = dlambda_k/dlambda
+
+df1 = t(dLL) %*% Dtheta
+```
 
 
 
