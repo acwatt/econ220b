@@ -2,7 +2,7 @@
 title: "Econ 220B PS 2"
 author: "AC Watt"
 email: aaron@acwatt.net
-date: "2021-12-03"
+date: "2021-12-17"
 output:
   pdf_document:
     toc: true
@@ -248,9 +248,10 @@ Pakes Pollard (1989) for reference on how to draw errors and compute confidence
 intervals.**
 
 
-
-
-
+I ran out of time to attempt the H-M two step method. Alas, I spent all my time
+on part C. I hope to come back and finish this next Summer because it seems like
+the H-M method is of more practical use! I'll probably try to use it to estimate
+my model of firm costs in reaction to Purple Air pollution sensor adoption.
 
 
 
@@ -270,7 +271,7 @@ intervals.**
 **Estimate his model using a nested fixed point procedure. Create a table
 similar to the first five columns of Table IX on page 1021.**
 
-Steps:
+## Estimating $\theta_3$
 
 1. Break the mileage into 5,000 mile bins
 
@@ -293,16 +294,12 @@ data = data %>%
 
 3. Define the cost functions to be estimated
 
-
-
-4.
-
-
-
-
 5. Estimate $\theta_3$ using Maximum Likelihood 
 Does the mileage stay in the current bin, or move up to the next bin, conditional
 on no replacement?
+
+
+
 
 Assuming the buses within a group are independent and come from the same discrete 
 transition probability distribution, then the likelihood function is just the
@@ -315,7 +312,14 @@ For group $g$ with $n_g$ buses and $T_g$ periods in it, the joint likelihood fun
 = \prod\limits_{k=1}^{n_g}\prod\limits_{t=1}^{T_g} p(x_{t,k} | x_{t-1,k}, i_{t-1,k}, \theta_3)
 \]
 
-```{r}
+Estimating this using ML gives us the table below:
+
+```{r Estimate theta3, warning=F, message=F, include=F, cache=T}
+#####################################################
+#               PART C
+#####################################################
+
+# Estimate theta3 using ML
 library(stats4)
 
 t1 = 0.34
@@ -389,10 +393,24 @@ for (group_ in 1:8) {
     theta3_df = rbind(theta3_df, df_)
 }
 
+```
+
+```{r theta3 Table, results='asis'}
+# Make theta3 ML estimate table
+theta3_df %>% select(theta31, theta32, theta33) %>% t() %>%
+    kbl(caption = "Partial Table V: Within Group ML Estimates of Mileage Transition Probabilities",
+        col.names = paste('Group', 1:8),
+        align = 'cc', digits = 3, booktabs = T, format.args = list(big.mark = ",")
+    ) %>%
+    kable_styling(latex_options = "HOLD_position")
 
 ```
 
+
+
+
 ```{r other optimization functions with constraints, eval=F}
+# other optimization functions with constraints
 # optim
 out2 = optim(theta3.start, minus_joint_llh, method = "L-BFGS-B", df = data_g, lower = c(0,0,0), upper = c(1,1,1))
 sum(out2$par)
@@ -424,8 +442,6 @@ nloptr(x0 = theta3.start,
        eval_g_eq = eval_g_eq,
        opts = opts
 )
-
-
 
 # mle
 data_temp %>%
@@ -470,7 +486,6 @@ c3 = function(xvec, theta1) sapply(xvec, function(x) theta1[1]*x^0.5)
 
 ```
 
-3.b Define utility function
 
 ```{r utility function}
 U = function(x, i, cost_fun, theta1, RC) {
@@ -495,13 +510,43 @@ U = function(x, i, cost_fun, theta1, RC) {
 ```
 
 
+## Estimating the fixed point $EV$
+
+Let $N$ be the number of mileage bins ($N$=90 here and in Rust's paper).
+Following the directions in Rust's programming manual, we need to do the following to
+estimate the fixed point EV at a given value of $\theta$:
+
+1. Define starting values for $\theta_1$, $\theta_3$, RC ($tr$ in Rust's paper),
+$\beta$, and the cost function. I am using the single-parameter linear cost function, 
+as Rust does in his programming manual examples. $c(x, \theta_1)=\theta_1 x$
+
+1. Generate the $N\times N$ markov transition matrix P by applying the ML-estimated
+$\theta_3$ transition probabilities to the $N\times N$ matrix, where the $i,j$ element
+represents the probabilty of transitioning from the $i^{th}$ mileage bin to the 
+$j^{th}$ bin.
+
+2. Generate the $\frac{dc}{d\theta_1}$ vector (vector of the derivative evaluated at each mileage bin).
+
+3. Generate the $N\times N$ value function matrix $T_\theta$ based on current values of $\theta$.
+
+4. Use the sequential approximation to get closer to the EV fixed point (updating EV by applying $T_\theta$ repeatedly).
+
+4. Generate $p_k$ (the $N\times 1$ values for $P(0|x, \theta)$) and $T'_\theta$ (the partial derivative of $T_\theta$ with respect to EV).
+
+5. Use $p_k$ and $T'_\theta$ in the Newton Kantorovich approximation to get within the desired accuracy threshold for EV.
+
+
+
+
+
+
 ```{r Define EV}
 N = 90
 
-theta3.fun = function(group_, theta3_df) {
+theta3.fun = function(groups, theta3_df) {
     #' Return theta3 vector for group_ from theta3 dataframe
-    df = theta3_df %>% filter(group==group_)
-    theta3 = c(df$theta31, df$theta32, df$theta33)
+    df = theta3_df %>% filter(group %in% groups)
+    theta3 = c(df$theta31, df$theta32)
     return(theta3)
 }
 
@@ -542,11 +587,16 @@ T.EV = function(P, c, beta, EV, RC) {
     #' @param beta discount factor
     #' @param EV old EV vector
     #' @param RC engine replacement cost
+    # To avoid overflow (EV will become too negative, so the log will evaluate to 0,
+    #   subtracting the minimum is equivalent and reduces the magnitidue of EV,
+    #   see (3.20) in the Rust manual)
+    K = max(-c + beta*EV)
+    # discrete integral over transition probabilities (integral 3.20)
     return(
         P %*% log(
-            exp( -c + beta*EV ) +
-            exp( -RC - c[1] + beta*EV[1] )
-        )
+            exp( -c + beta*EV - K) +
+            exp( -RC - c[1] + beta*EV[1] - K)
+        ) + K
     )
 }
 
@@ -588,11 +638,11 @@ EV.sequential = function(theta1, theta3, c, RC, P, beta,
         # Calculate distance metric
         diff = abs(EVold - EVnew)
         sup_norm = max(diff)
-        # norms[k] = sup_norm
+        # print(paste('iteration', k, ' norm:', sup_norm))
         if (k%%100 == 0 & verbose) print(paste('iteration', k, ' norm:', sup_norm))
         if (sup_norm < accuracy_threshold) {
             if (verbose) {
-                print('WITHIN TOLERANCE! EV function approximated.')
+                print(paste('WITHIN TOLERANCE! EV function approximated after', k, 'sequential iterations'))
                 print(paste('Total seconds:', proc.time()[3] - start_t[3]))
                 print(paste('Average seconds per iteration:', 
                             (proc.time()[3] - start_t[3]) / iteration_max ))
@@ -601,7 +651,7 @@ EV.sequential = function(theta1, theta3, c, RC, P, beta,
         }
         EVold = EVnew
     }
-    print(paste('MAX ITERATIONS REACHED! EV function approximated to', sup_norm))
+    print(paste('MAX ITERATIONS REACHED!', iteration_max, 'EV function approximated to', sup_norm))
     print(paste('Total seconds:', proc.time()[3] - start_t[3]))
     print(paste('Average seconds per iteration:', 
                 (proc.time()[3] - start_t[3]) / iteration_max ))
@@ -624,7 +674,7 @@ Tprime.fun = function(beta, P, pk) {
 }
 
 
-EV.nk = function(EVold, Tprime, c, dc, RC, P, beta,
+EV.nk = function(EVold, Tprime, c, dc, RC, P, beta, pk,
                  iteration_max = 1000, verbose = F,
                  accuracy_threshold = 1e-10, print_every=100) {
     #' Return Newton-Kantorovich approximated EV
@@ -633,42 +683,38 @@ EV.nk = function(EVold, Tprime, c, dc, RC, P, beta,
     # Iterate toward fixed point EV
     for (k in 1:iteration_max) {
         # Get new EV
-        T.EV(P, c, beta, EVold, RC)
         EVnew = EVold - solve(diag(N) - Tprime) %*% (EVold - T.EV(P, c, beta, EVold, RC))
         # Calculate distance metric
         sup_norm = max(abs(EVold - EVnew))
         if (k%%print_every == 0 & verbose) print(paste('iteration', k, ' norm:', sup_norm))
         if (sup_norm < accuracy_threshold) {
             if (verbose) {
-                print(paste('WITHIN TOLERANCE! EV function approximated.', k, 'iterations'))
+                print(paste('WITHIN TOLERANCE! EV function approximated after', k, 'NK iterations'))
                 print(paste('Total seconds:', proc.time()[3] - start_t[3]))
                 print(paste('Average seconds per iteration:', 
                             (proc.time()[3] - start_t[3]) / iteration_max ))
             }
-            
-            # Recenter the value function (max over x)
-            K = max(-c + beta*EVnew)
-            
-            # Derivative of T w.r.t. beta
-            dTdb = (-beta * (1-beta) * (EVnew[1] + P %*% (EVnew - EVnew[1]) * pk))
+            # Derivative of T w.r.t. beta (not needed, since we're not changing beta)
+            # dTdb = (-beta * (1-beta) * (EVnew[1] + P %*% (EVnew - EVnew[1]) * pk))
             
             # Derivative of T w.r.t. RC
             dTdRC = P %*% pk - 1
-            # browser()
             # Derivative of T w.r.t. theta1
             d = (P %*% dc)
-            dTdtheta1 = -matrix(c((d[,1] * pk), (d[,2] * pk)), nrow=N, ncol=2)
-            
-            # browser()
+            # quadratic
+            # dTdtheta1 = -matrix(c((d[,1] * pk), (d[,2] * pk)), nrow=N, ncol=2)
+            # linear
+            dTdtheta1 = -(d * pk)
             # Derivative of T w.r.t. theta3
-            dtp = log(exp(-c + beta*EVnew) + exp(-RC - c[1] + beta*EVnew[1]))
+            K = max(-c + beta*EVnew)
+            dtp = log(exp(-c + beta*EVnew - K) + exp(-RC - c[1] + beta*EVnew[1] - K)) + K
             dTdtheta3 = cbind(
                 c(dtp[1:(N-2)] - dtp[3:N], dtp[(N-1)] - dtp[N], 0),
                 c(dtp[2:(N-1)] - dtp[3:N], 0, 0)
             )
             
             # Bind all parameter derivative vectors together
-            dTdtheta = cbind(dTdb, dTdRC, dTdtheta1, dTdtheta3)
+            dTdtheta = cbind(dTdRC, dTdtheta1, dTdtheta3)
             # Derivative of EV w.r.t. theta
             dEV = solve(diag(N) - Tprime) %*% dTdtheta
             
@@ -676,175 +722,267 @@ EV.nk = function(EVold, Tprime, c, dc, RC, P, beta,
         }
         EVold = EVnew
     }
-    print(paste('MAX ITERATIONS REACHED! EV function approximated to', sup_norm))
+    print(paste('MAX ITERATIONS REACHED!', iteration_max, 'EV function approximated to', sup_norm))
     print(paste('Total seconds:', proc.time()[3] - start_t[3]))
     print(paste('Average seconds per iteration:', 
                 (proc.time()[3] - start_t[3]) / iteration_max ))
     return(list(EVnew=EVnew, EVold=EVold))
 }
 
-theta1 = c(3)
-group_ = 1
-theta3 = theta3.fun(group_ = group_, theta3_df)
-beta = 0.9999
-RC = 10
-x = 1:N
-c = c0(x, theta1)
-# Derivative of cost function w.r.t. theta1
-dc = matrix(c(exp(theta1[2]*x), theta1[1]*x*exp(theta1[2]*x)), nrow=N, ncol=2)
-# Generate the P matrix ()
-P = P.fun(theta3)
-EV_out = EV.sequential(theta1, theta3, c, RC, P, beta, verbose=F, accuracy_threshold = 1e-3)
-pk = pk.fun(c, beta, EV_out$EVnew, RC)
-Tprime = Tprime.fun(beta, P, pk)
-EVnew = EV.nk(EV_out$EVnew, Tprime, c, dc, RC, P, beta, 
-              verbose = T, accuracy_threshold = 1e-6)
-# Choose the stepsize lambda
-    # define D(theta) from (3.10)
-    # define f(lambda; theta) = L(theta + lambda*D(theta))
-    # define lambda_new from (3.13) using secant method
-        # l2 = l1 - [(l1 - l0)*df(l1)/dl]/[df(l1)/dl - df(l0)/dl]
-    # continue linesearch for lambda until (% inc in L) > (tolerance) and # iterations in (min_iter, max_iter)
 
+EV.fun = function(theta1 = c(3),
+                  theta3 = theta3.fun(groups = c(1), theta3_df),
+                  beta = 0.9999,
+                  RC = 10,
+                  costfun = c0,
+                  verbose = T,
+                  verboseinner = F,
+                  iteration_max = 1000) {
+    x = 1:N
+    c = costfun(x, theta1)
+    theta3 = c(theta3, 1-sum(theta3))
+    # Derivative of cost function w.r.t. theta1
+    # dc_quad = matrix(c(exp(theta1[2]*x), theta1[1]*x*exp(theta1[2]*x)), nrow=N, ncol=2)
+    dc_lin = c / theta1[1]
+    # Generate the P matrix
+    P = P.fun(theta3)
+    # Get close to EV fixed point using sequential approximation
+    EV_out = EV.sequential(theta1, theta3, c, RC, P, beta, 
+                           verbose=verboseinner, accuracy_threshold = 1e-3,
+                           iteration_max = iteration_max*10)
+    
+    pk = pk.fun(c, beta, EV_out$EVnew, RC)
+    Tprime = Tprime.fun(beta, P, pk)
+    # Get really close to EV fixed point using NK method
+    EVnew = EV.nk(EV_out$EVnew, Tprime, c, dc_lin, RC, P, beta, pk,
+                  verbose = verbose, accuracy_threshold = 1e-6,
+                  iteration_max = iteration_max)
+    
+    return(list(
+        cost = c,
+        dc = dc_lin,
+        P = P,
+        pk = pk,
+        EV = EVnew$EVnew,
+        dEV = EVnew$dEV
+    ))
 
-# Recenter EV
-
-
-
+}
 
 
 
 ```
 
+## Estimating RC, $\theta_1$, $\theta_3$
+
+Now that we have the fixed point $EV_\theta(x)$, we need climb the hill to reach the 
+loglikelihood-maximizing $\theta$ parameter. This uses the BHHH method. I was unable to
+fix an issue I was having in the final part of the BHHH method. 
+
+To implement the BHHH method, I:
+
+1. Define starting values for $\theta$, $\lambda 0$, $\lambda 1$, `df0` and `df1`. The last two
+are parameters that help determine the optimal step size $\lambda 2$.
+
+2. Find the fixed point EV for these starting values.
+
+3. Find the loglikelihood (LL), it's $\theta$ derivative, and the Hessian matrix (H).
+
+4. Using H and the derivative of LL, I find the new direction of $\theta$.
+
+5. Using $\lambda 0$, $\lambda 1$, `df0` and `df1`, I find the correct step size
+$\lambda 2$.
+
+6. Update $\theta$ with a $\lambda 2$ sized step in the new $\theta$ direction.
+
+7. Update the fixed point $EV_\theta(x)$ and repeat the above steps. 
 
 
-evaluates the loglikelihood function `ll`, its derivatives `dll`,and the
-information matrix (the cumulative outer product of the derivatives of the
-individual loglikelihood terms). Consider first the evaluation of the
-loglikelihood function. The general formula for the full and partial likelihood
-function is given in equation (2.5) and (2.8) in chapter 2. The R code
-(translated from GAUSS code) for these functions is given below:
-```{r dLL}
+I could not fix a bug that send the BHHH method off in the wrong direction. I am
+attaching my code, which I wrote from scratch using the Rust GAUSS programming
+manual as my guide and translating some of his chunks of code into R.
+
+As a sidenote, I had a lot of fun programming this. I spent a significant amount
+of time doing it over the last month and learned a lot about how fast different methods of programming
+can work (I was able to update my EV fixed point estimation using Rust's manual,
+changing it from taking several minutes to less than a hundredth of a second). Matrix
+algorithms are much more efficient. I'm planning to take a matrix algorithms 
+course taught by James Demmel in the next couple years because it seems like such
+an important skill.
+
+I wish I had started with the H-M two step first, since that's the more updated
+method, but this was really fun reading through Rust's paper and manual in
+excruciating detail.
+
+
+
+
+
+```{r Full log likelihood ll}
+############################################
+#           BHHH method begins
+############################################
+# Evaluates the loglikelihood function `ll`, its derivatives `dll`, and the
+# information matrix (the cumulative outer product of the derivatives of the
+# individual loglikelihood terms). Consider first the evaluation of the
+# loglikelihood function. The general formula for the full and partial likelihood
+# function is given in equation (2.5) and (2.8) in chapter 2. The R code
+# (translated from GAUSS code) for these functions is given below:
 # Calculating log-likelihood and derivative dLL
+ll.fun = function(data, theta3, pk) {
+    
+    # Create T*M x 1 vector of P(0|x^m_t) for t in T and m in M (^1_1, ^1_2, ..., ^1_T, ^2_1, ...)
+        # Take X bins from data, use to select indices of pk vector
+    dt2 = data %>%
+        filter(group < 5) %>%
+        arrange(bus_number, m) %>%
+        '$'(x5000)
+    lp = pk[dt2]
+    
+    # Create 2 x 1 vector of logs of parameters
+    # log of probabilities that (x_t - x_{t-1}) = 0 or = 1
+    theta3 = c(theta3, 1-sum(theta3))
+    lnp = log(theta3)
+    
+    # Create full log likelihood from some of partial log likelihoods
+    dt3 = (data %>% filter(group<5) %>% arrange(bus_number, m))$g  # number of x bins increased from previous period
+    dt1 = (data %>% filter(group<5) %>% arrange(bus_number, m))$replaced  # d_t, action (0 = not replace, 1 = replaced)
+    ll = sum(lnp[dt3+1] +  # log[Pr(x_t | x_{t-1}, d_t, theta)]
+        log(lp + (1-2*lp)*dt1))  # log[Pr(d_t | x_t, theta)]
 
-# Create T*M x 1 vector of P(0|x^m_t) for t in T and m in M (^1_1, ^1_2, ..., ^1_T, ^2_1, ...)
-    # Take X bins from data, use to select indices of pk vector
-lp = data %>%
-    arrange(bus_number, m) %>%
-    '$'(x5000) %>%
-    pk[.]
+    return(list(
+        lp = lp,
+        dt1 = dt1,
+        dt2 = dt2,
+        dt3 = dt3,
+        lnp = lnp,
+        ll = ll
+    ))
+}
 
-# Create 2 x 1 vector of logs of parameters
 ```
 
+
+```{r Hessian and derivative of LogLike}
+# Hessian and derivative of LogLike
+HdLL = function(EVout, llout) {
+    dt1=llout$dt1; dt2=llout$dt2; lp=llout$lp;
+    
+    dev = EVout$dEV  # derivatives of EV w.r.t RC, theta1, theta31, theta32
+    dc = EVout$dc  # derivatives of cost w.r.t theta1
+
+    # Build derivatives of individual loglikelihood terms (d1v) from (3.29) in manual
+    d1v = matrix(0, length(dt2), dim(dev)[2])
+    d1v[,1] = 1
+    d1v[,2] = dc[dt2]  # cost derivative evaluated at sample xbins
+    d1v = d1v + t(replicate(length(dt2), dev[1,])) - dev[dt2,]  # dEV(0) - dEV(x) for x = sample xbins
+    d1v = d1v * (lp - 1 + dt1)  # Pr(0|x_t) - 1 + d_t (replacement decision, 1=replaced)
+    
+    # Information matrix h from (3.30)
+    H = t(d1v) %*% d1v
+    
+    dLL = colSums(d1v)
+    
+    return(list(H = H, dLL = dLL))
+}
+
+
+```
 
 
 
 
 The basic parameter iteration in BHHH given in equations (3.7), (3.10), and (3.13) have a
 translation into GAUSS code given by
-```{r BHHH}
+```{r BHHH, eval=F}
 # BHHH algorithm from (3.26)
-theta_new = theta_old + labmda2*Dtheta  # Dtheta = D(theta_old)
-
-Dtheta = solve(H) %*% dLL  # dLL = derivatives of log likelihood
-
-lambda2 = lambda1 - (lambda1 - lambda0)*df1/(df1 - df0)  # dfk = dlambda_k/dlambda
-
-df1 = t(dLL) %*% Dtheta
-```
-
-
-
-
-```{r old stuff, eval=F}
-
-
-T.inner = function(x, y, i, ufun, EVfun, beta, xmax=N) {
-    if (x+y > xmax) return(0)
-    inner = exp(ufun(x+y, i) + beta*EVfun(x+y, i))
-    # print(paste('x:', x,'  y:', y, '  i:', i, '  u:', ufun(x+y, i), '  EV:', EVfun(x+y, i)))
-    return(inner)
-}
-
-T.inner_sum = function(x, y, ufun, EVfun, beta) {
-    #' Return sum of T.inner over jvec
-    inner_vec = sapply(c(0, 1), function(j) T.inner(x, y, j, ufun, EVfun, beta))
-    # print('inner_vec:')
-    # print(inner_vec)
-    inner_sum = sum(inner_vec)
-    return(inner_sum)
-}
-
-T.outer = function(x, y, ufun, EVfun, theta3, beta) {
-    inner_sum = T.inner_sum(x, y, ufun, EVfun, beta)
-    # print(paste('inner_sum:', inner_sum))
-    log(inner_sum) * g.fun(y, theta3)
-}
-
-T.outer_sum = function(x, ufun, EVfun, theta3, beta) {
-    yvec = comprehenr::to_vec(for (y in 0:2) if (x + y <= N) y)
-    outer_vec = sapply(yvec, function(y) T.outer(x, y, ufun, EVfun, theta3, beta))
-    outer_sum = sum(outer_vec)
-}
-
-EV2 = function(EVfun, cost_fun, theta1, RC, theta3, beta) {
-    #' Return transformed EV function
-    
-    EVnew = function(x) {
-        # sum over possible y
-        yvec = comprehenr::to_vec(for (y in 0:2) if (x + y <= N) y)
-        sum(sapply(yvec, function(y) {
-                log(
-                    exp(-cost_fun(x+y, theta1) + beta*EVfun(x+y)) +
-                    exp(-RC - cost_fun(0, theta1) + beta*EVfun(0))
-                ) * g.fun(y, theta3)
-        }))
-    }
-    # EVnew = function(x, i) {
-    #     ufun = U(x, i, cost_fun, theta1, RC)
-    #     T.outer_sum(x, ufun, EVfun, theta3, beta)
-    # }
-    
-    return(EVnew)
-}
-
-
-
-EVold = function(x, i) return(0)
-theta1 = c(1, 1)
-group_ = 1
-theta3 = theta3.fun(group_ = group_, theta3_df)
-beta = 0.99
-RC = 1
-cost_fun = c2
-xvec = 1:N
-for (k in 1:20) {
+theta_search = function(theta1_start = c(3),
+                        theta3_start = theta3.fun(groups = c(1), theta3_df),
+                        beta = 0.9999,
+                        RC_start = 10,
+                        max_theta_iterations = 10,
+                        accuracy_threshold = 1e-6,
+                        lambda1 = 0.0001,
+                        lambda0 = 0) {
+    # starting values
     start_t = proc.time()
-    # print(paste('iteration', k, ' EVvec:'))
-    # print(comprehenr::to_vec(for (x in xvec) for (i in 0:1) abs(EVold(x, i))))
-    # Reduce old EV to vector function (instead of possibly many recursive functions)
-    EVvec = comprehenr::to_vec(for (i in 0:1) for (x in xvec) EVold(x, i))
-    EVold = function(x, i) return(EVvec[max(xvec)*i + x])
-    # Get new EV
-    EVnew = EV2(EVfun = EVold,
-                cost_fun = cost_fun,
-                theta1 = theta1,
-                RC = RC,
-                theta3 = theta3,
-                beta = beta)
-    # Calculate distance metric
-    diff = comprehenr::to_vec(for (i in 0:1) for (x in xvec) abs(EVold(x, i) - EVnew(x, i)))
-    sup_norm = max(diff)
-    print(paste('iteration', k, ' norm:', sup_norm))
-    Sys.sleep(5)
-    if (sup_norm < 1e-6) {
-        print('WITHIN TOLERANCE! EV function approximated.')
-        break
+    df0 = NA
+    EVout = EV.fun(theta1 = theta1_start,
+                   theta3 = theta3_start,
+                   beta = beta,
+                   RC = RC_start)
+    theta_new = c(RC_start, theta1_start, theta3_start[1:2])
+    
+    for (k in 1:max_theta_iterations) {
+        
+        llout = ll.fun(data, theta_new[3:4], EVout$pk)
+        hdll = HdLL(EVout, llout)
+        
+        Dtheta = solve(hdll$H) %*% hdll$dLL
+        df1 = t(hdll$dLL) %*% Dtheta
+        if (is.na(df0)) df0 = 1.5*df1  # only in the first loop
+        
+        lambda2 = lambda1 - (lambda1 - lambda0)*df1/(df1 - df0)  # dfk = dlambda_k/dlambda
+        lambda2 = lambda2[1,1]
+        
+        theta_old = theta_new
+        theta_new = theta_old + lambda2*Dtheta  # Dtheta = D(theta_old)
+        
+        df0 = df1
+        df1 = t(hdll$dLL) %*% Dtheta
+        
+        theta_norm = max(abs(theta_new - theta_old))
+        print(paste('theta norm after', k, 'BHHH iterations:', theta_norm))
+        
+        print('theta:')
+        print(theta_new)
+                
+        # Exit condition
+        if (theta_norm < accuracy_threshold) {
+            if (verbose) {
+                print(paste('WITHIN TOLERANCE! EV function approximated after', k, 'sequential iterations'))
+                print(paste('Total seconds:', proc.time()[3] - start_t[3]))
+                print(paste('Average seconds per iteration:', 
+                            (proc.time()[3] - start_t[3]) / iteration_max ))
+                print('theta:')
+                print(theta_new)
+            }
+            return(list(theta=theta_new, ll=llout$ll))
+        }
+        
+        EVout = EV.fun(theta1 = theta_new[2],
+                       theta3 = theta_new[3:4],
+                       beta = beta,
+                       RC = theta_new[1], 
+                       verbose = F,
+                       verboseinner = F)
+    
     }
-    EVold = EVnew
-    print(paste('iteration seconds:', proc.time()[3] - start_t[3]))
+    
+    
+    print(paste('MAX ITERATIONS REACHED!', max_theta_iterations, 'theta approximated to', theta_norm))
+    print(paste('Total seconds:', proc.time()[3] - start_t[3]))
+    print(paste('Average seconds per iteration:', 
+                (proc.time()[3] - start_t[3]) / max_theta_iterations ))
+    print(theta_new)
+    return(list(theta=theta_new, ll=llout$ll))
+    
 }
+
+
+# Execute the search
+theta = theta_search(theta1_start = c(3),
+                        theta3_start = theta3.fun(groups = c(1), theta3_df),
+                        max_theta_iterations = 100,
+                        accuracy_threshold = 1e-6,
+                        lambda1 = 0.0001,
+                        lambda0 = 0)
+
+# This starts heading toward a negative value for theta32. Haven't been able to
+# find an easy way to bound the parameter search. Probably an issue with the step
+# size or possibly the initial values of df0, df1, lambda0, and lambda1. 
+# I could not find docuemtnation on how to choose the right starting values. 
+
 ```
 
 
@@ -858,20 +996,6 @@ for (k in 1:20) {
 
 ```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
