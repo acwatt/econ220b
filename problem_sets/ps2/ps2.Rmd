@@ -68,6 +68,7 @@ library(docstring)
 ```{r Table IIa, eval=T, cache=Cache, message=F, warning=F, results='asis'}
 # Load top 11 rows only to get replacement dates and mileage
 f = 'rust_data_clean.xlsx'
+# Load additional tab with column names in it (tab header_names does not appear in the original data)
 headers = read_excel(f, sheet='header_names', col_names='header')
 sheets = excel_sheets(f)[1:8]
 
@@ -195,8 +196,8 @@ data = data %>%
     mutate(date2 = initial_odometer_reading_date + months(m - 1),
            group = as.character(group),
            replaced = ifelse((date == replace_date1 & !is.na(replace_date1)) | (date == replace_date2 & !is.na(replace_date2)), 1, 0),
-           x = case_when(date >= replace_date2 ~ mileage - mileage_replace2,
-                         date >= replace_date1 ~ mileage - mileage_replace1,
+           x = case_when(date > replace_date2 ~ mileage - mileage_replace2,
+                         date > replace_date1 ~ mileage - mileage_replace1,
                          TRUE ~ mileage))
 
 # Make Table IIa
@@ -456,6 +457,8 @@ mle(nLL_wrapper, start = list(theta3 = theta3.start))
 
 ```{r cost functions}
 # Need to normalize all cost functions so c(0, theta1) = 0 (pg. 1015)
+# Linear
+c0 = function(xvec, theta1) sapply(xvec, function(x) 0.001*theta1[1]*x)
 # Polynomial
 c1 = function(xvec, theta1) sapply(xvec, function(x) theta1[1]*x + theta1[2]*x^2 + theta1[3]*x^3)
 # exponential
@@ -680,13 +683,13 @@ EV.nk = function(EVold, Tprime, c, dc, RC, P, beta,
     return(list(EVnew=EVnew, EVold=EVold))
 }
 
-theta1 = c(5, 0.01)
+theta1 = c(3)
 group_ = 1
 theta3 = theta3.fun(group_ = group_, theta3_df)
-beta = 0.99
+beta = 0.9999
 RC = 10
 x = 1:N
-c = c2(x, theta1)
+c = c0(x, theta1)
 # Derivative of cost function w.r.t. theta1
 dc = matrix(c(exp(theta1[2]*x), theta1[1]*x*exp(theta1[2]*x)), nrow=N, ncol=2)
 # Generate the P matrix ()
